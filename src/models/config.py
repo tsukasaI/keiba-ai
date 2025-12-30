@@ -104,3 +104,21 @@ MISSING_DEFAULTS = {
     "place_rate_last_3": 0.0,
     "place_rate_last_5": 0.0,
 }
+
+# Profitable segments identified from backtesting
+# Filter to these for positive ROI strategy
+PROFITABLE_SEGMENTS = {
+    "racecourse": ["福島"],  # +58.6% ROI
+    "track_condition": ["yielding", "heavy"],  # +36.3%, +2.1% ROI
+    "distance_category": ["long"],  # +11.5% ROI
+}
+
+# Backtest configuration
+BACKTEST_CONFIG = {
+    "n_periods": 6,
+    "train_months": 18,
+    "test_months": 3,
+    "calibration_months": 3,
+    "min_prob_threshold": 0.03,  # 3% minimum probability to bet
+    "max_bets_per_race": 3,
+}

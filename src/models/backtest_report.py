@@ -12,9 +12,10 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from .backtester import Backtester, BacktestResults
-from .calibration import CalibrationAnalyzer, run_calibration_analysis
+from .backtester import Backtester
+from .calibrator import CalibrationAnalyzer
 from .data_loader import RaceDataLoader
+from .types import BacktestResults
 
 logging.basicConfig(
     level=logging.INFO,
@@ -287,7 +288,7 @@ def run_full_backtest_report(
 
     # Run calibration analysis
     print("\n")
-    calibration = run_calibration_analysis(results)
+    calibration = _run_calibration_analysis(results)
 
     return {
         "results": results,
@@ -297,6 +298,60 @@ def run_full_backtest_report(
         "stratified": reporter.generate_stratified_summary(backtester),
         "monthly": reporter.generate_monthly_returns(),
     }
+
+
+def _run_calibration_analysis(results: BacktestResults) -> Dict:
+    """Run calibration analysis on backtest results."""
+    import numpy as np
+
+    if not results.bets:
+        return {}
+
+    probs = np.array([b.predicted_prob for b in results.bets])
+    labels = np.array([1 if b.won else 0 for b in results.bets])
+
+    analyzer = CalibrationAnalyzer(n_bins=10)
+    bins = analyzer.analyze(probs, labels)
+    brier = analyzer.brier_score(probs, labels)
+    ece = analyzer.expected_calibration_error(bins)
+    issues = analyzer.detect_issues(bins)
+
+    # Print report
+    print("=" * 60)
+    print("CALIBRATION ANALYSIS REPORT")
+    print("=" * 60)
+    print(f"\n--- Overall Metrics ---")
+    print(f"Brier Score:                    {brier:.4f}")
+    print(f"Expected Calibration Error:     {ece:.4f}")
+
+    print(f"\n--- Calibration by Probability Bin ---")
+    print(f"{'Bin':>12} {'Samples':>10} {'Predicted':>12} {'Actual':>10} {'Error':>10}")
+    print("-" * 56)
+    for b in bins:
+        print(f"{b.bin_start:.2%}-{b.bin_end:.2%}{b.num_samples:>10}"
+              f"{b.avg_predicted_prob:>12.2%}{b.actual_hit_rate:>10.2%}{b.confidence_error:>+10.2%}")
+
+    print(f"\n--- Calibration Issues ---")
+    for category, message in issues.items():
+        print(f"{category}: {message}")
+
+    # EV tier analysis
+    tiers = {"high_ev": (1.5, float("inf")), "medium_ev": (1.2, 1.5), "low_ev": (1.0, 1.2)}
+    print(f"\n--- Calibration by EV Tier ---")
+    print(f"{'Tier':>12} {'Bets':>8} {'Predicted':>12} {'Actual':>10} {'Error':>10}")
+    print("-" * 54)
+
+    for tier, (lo, hi) in tiers.items():
+        tier_bets = [b for b in results.bets if lo <= b.expected_value < hi]
+        if tier_bets:
+            t_probs = np.array([b.predicted_prob for b in tier_bets])
+            t_labels = np.array([1 if b.won else 0 for b in tier_bets])
+            print(f"{tier:>12}{len(tier_bets):>8}{t_probs.mean():>12.2%}"
+                  f"{t_labels.mean():>10.2%}{t_probs.mean() - t_labels.mean():>+10.2%}")
+
+    print("=" * 60)
+
+    return {"bins": bins, "brier_score": brier, "ece": ece, "issues": issues}
 
 
 def main():

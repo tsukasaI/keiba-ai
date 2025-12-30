@@ -5,28 +5,29 @@ Walkforward backtesting with actual exacta odds and stratified analysis.
 """
 
 import logging
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass, field
 from collections import defaultdict
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from .config import (
-    FEATURES,
-    RACE_ID_COL,
-    HORSE_NAME_COL,
-    TARGET_COL,
-    DATE_COL,
+    BACKTEST_CONFIG,
     BETTING_CONFIG,
+    DATE_COL,
+    FEATURES,
+    HORSE_NAME_COL,
+    PROFITABLE_SEGMENTS,
+    RACE_ID_COL,
+    TARGET_COL,
 )
+from .calibrator import ExactaCalibrator
 from .data_loader import RaceDataLoader
-from .position_model import PositionProbabilityModel
 from .exacta_calculator import ExactaCalculator
 from .expected_value import ExpectedValueCalculator
 from .odds_loader import OddsLoader
-from .probability_calibrator import ExactaCalibrator
+from .position_model import PositionProbabilityModel
+from .types import BacktestResults, BetResult
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,128 +36,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class BetResult:
-    """Result of a single bet."""
-    race_id: int
-    race_date: str
-    predicted_1st: str
-    predicted_2nd: str
-    actual_1st: int
-    actual_2nd: int
-    predicted_prob: float
-    actual_odds: float
-    expected_value: float
-    bet_amount: float
-    payout: float
-    profit: float
-    won: bool
-    # Stratification fields
-    surface: str = ""
-    distance_category: str = ""
-    race_grade: str = ""
-    track_condition: str = ""
-    racecourse: str = ""
-
-
-@dataclass
-class BacktestResults:
-    """Aggregate backtest results."""
-    bets: List[BetResult] = field(default_factory=list)
-    total_bet: float = 0
-    total_return: float = 0
-    num_bets: int = 0
-    num_wins: int = 0
-
-    @property
-    def profit(self) -> float:
-        return self.total_return - self.total_bet
-
-    @property
-    def roi(self) -> float:
-        if self.total_bet == 0:
-            return 0
-        return (self.total_return - self.total_bet) / self.total_bet * 100
-
-    @property
-    def hit_rate(self) -> float:
-        if self.num_bets == 0:
-            return 0
-        return self.num_wins / self.num_bets * 100
-
-    @property
-    def avg_odds_hit(self) -> float:
-        """Average decimal odds of winning bets (convert from Japanese format)."""
-        winning_bets = [b for b in self.bets if b.won]
-        if not winning_bets:
-            return 0
-        # actual_odds is payout per 100 yen, convert to decimal multiplier
-        return np.mean([b.actual_odds / 100 for b in winning_bets])
-
-    def get_cumulative_profit(self) -> List[float]:
-        """Get cumulative profit over time."""
-        cumulative = []
-        total = 0
-        for bet in self.bets:
-            total += bet.profit
-            cumulative.append(total)
-        return cumulative
-
-    def get_max_drawdown(self) -> float:
-        """Calculate maximum drawdown."""
-        cumulative = self.get_cumulative_profit()
-        if not cumulative:
-            return 0
-
-        peak = cumulative[0]
-        max_dd = 0
-
-        for value in cumulative:
-            if value > peak:
-                peak = value
-            dd = peak - value
-            if dd > max_dd:
-                max_dd = dd
-
-        return max_dd
-
-    def get_sharpe_ratio(self, risk_free_rate: float = 0) -> float:
-        """Calculate Sharpe ratio of returns."""
-        if not self.bets:
-            return 0
-
-        returns = [b.profit / b.bet_amount for b in self.bets]
-        if len(returns) < 2:
-            return 0
-
-        mean_return = np.mean(returns)
-        std_return = np.std(returns)
-
-        if std_return == 0:
-            return 0
-
-        return (mean_return - risk_free_rate) / std_return
-
-
 class Backtester:
     """
     Walkforward backtesting with actual exacta odds.
 
-    Strategy: Bet on exacta combinations with EV > threshold.
+    Strategy: Bet on top exacta predictions, optionally filtered to profitable segments.
     """
-
-    # Profitable segment filters based on backtest analysis
-    PROFITABLE_SEGMENTS = {
-        "racecourse": ["福島"],  # +58.6% ROI
-        "track_condition": ["yielding", "heavy"],  # +36.3%, +2.1% ROI
-        "distance_category": ["long"],  # +11.5% ROI
-    }
 
     def __init__(
         self,
         ev_threshold: float = BETTING_CONFIG["ev_threshold"],
         bet_unit: float = BETTING_CONFIG["bet_unit"],
-        max_bets_per_race: int = 3,
+        max_bets_per_race: int = BACKTEST_CONFIG["max_bets_per_race"],
         calibration_method: Optional[str] = None,
         filter_segments: bool = False,
         custom_filters: Optional[Dict[str, List[str]]] = None,
@@ -166,12 +57,7 @@ class Backtester:
         self.max_bets_per_race = max_bets_per_race
         self.calibration_method = calibration_method
         self.filter_segments = filter_segments
-
-        # Use custom filters or default profitable segments
-        if custom_filters is not None:
-            self.segment_filters = custom_filters
-        else:
-            self.segment_filters = self.PROFITABLE_SEGMENTS
+        self.segment_filters = custom_filters or PROFITABLE_SEGMENTS
 
         self.exacta_calc = ExactaCalculator()
         self.ev_calc = ExpectedValueCalculator(ev_threshold=ev_threshold)

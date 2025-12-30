@@ -5,54 +5,71 @@ Models for horse racing position prediction and exacta betting.
 """
 
 from .config import (
+    BACKTEST_CONFIG,
+    BETTING_CONFIG,
     FEATURES,
     FEATURE_GROUPS,
     LGBM_PARAMS,
+    MISSING_DEFAULTS,
+    PROFITABLE_SEGMENTS,
     TRAINING_CONFIG,
-    BETTING_CONFIG,
 )
+from .types import BacktestResults, BetResult
 from .data_loader import RaceDataLoader
+from .odds_loader import OddsLoader
 from .position_model import PositionProbabilityModel
 from .exacta_calculator import ExactaCalculator
 from .expected_value import ExpectedValueCalculator, ValueBet
+from .calibrator import (
+    BinningCalibration,
+    CalibrationAnalyzer,
+    CalibrationBin,
+    ExactaCalibrator,
+    IsotonicCalibration,
+    PlattScaling,
+    TemperatureScaling,
+    compare_calibration_methods,
+)
 from .trainer import ModelTrainer
 from .evaluator import ModelEvaluator
-from .odds_loader import OddsLoader
-from .backtester import Backtester, BacktestResults, BetResult
-from .calibration import CalibrationAnalyzer, run_calibration_analysis
+from .backtester import Backtester
 from .backtest_report import BacktestReporter, run_full_backtest_report
-from .probability_calibrator import (
-    PlattScaling,
-    IsotonicCalibration,
-    TemperatureScaling,
-    BinningCalibration,
-    ExactaCalibrator,
-)
 
 __all__ = [
+    # Config
+    "BACKTEST_CONFIG",
+    "BETTING_CONFIG",
     "FEATURES",
     "FEATURE_GROUPS",
     "LGBM_PARAMS",
+    "MISSING_DEFAULTS",
+    "PROFITABLE_SEGMENTS",
     "TRAINING_CONFIG",
-    "BETTING_CONFIG",
+    # Types
+    "BacktestResults",
+    "BetResult",
+    # Data loading
     "RaceDataLoader",
+    "OddsLoader",
+    # Models
     "PositionProbabilityModel",
     "ExactaCalculator",
     "ExpectedValueCalculator",
     "ValueBet",
+    # Calibration
+    "BinningCalibration",
+    "CalibrationAnalyzer",
+    "CalibrationBin",
+    "ExactaCalibrator",
+    "IsotonicCalibration",
+    "PlattScaling",
+    "TemperatureScaling",
+    "compare_calibration_methods",
+    # Training & Evaluation
     "ModelTrainer",
     "ModelEvaluator",
-    "OddsLoader",
+    # Backtesting
     "Backtester",
-    "BacktestResults",
-    "BetResult",
-    "CalibrationAnalyzer",
-    "run_calibration_analysis",
     "BacktestReporter",
     "run_full_backtest_report",
-    "PlattScaling",
-    "IsotonicCalibration",
-    "TemperatureScaling",
-    "BinningCalibration",
-    "ExactaCalibrator",
 ]

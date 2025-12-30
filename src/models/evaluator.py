@@ -1,11 +1,12 @@
 """
 競馬AI予測システム - モデル評価
 
-Evaluation metrics, calibration analysis, and ROI simulation.
+Evaluation metrics for position prediction model.
+Note: For ROI simulation with real exacta odds, use Backtester instead.
 """
 
 import logging
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 from pathlib import Path
 
 import numpy as np
@@ -15,11 +16,9 @@ from .config import (
     RACE_ID_COL,
     HORSE_NAME_COL,
     TARGET_COL,
-    BETTING_CONFIG,
 )
 from .position_model import PositionProbabilityModel
 from .exacta_calculator import ExactaCalculator
-from .expected_value import ExpectedValueCalculator, ValueBet
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,17 +30,12 @@ logger = logging.getLogger(__name__)
 class ModelEvaluator:
     """
     Evaluate model performance with horse racing-specific metrics.
+
+    For ROI simulation with real exacta odds, use Backtester class instead.
     """
 
-    def __init__(
-        self,
-        ev_threshold: float = BETTING_CONFIG["ev_threshold"],
-        bet_unit: int = BETTING_CONFIG["bet_unit"],
-    ):
-        self.ev_threshold = ev_threshold
-        self.bet_unit = bet_unit
+    def __init__(self):
         self.exacta_calc = ExactaCalculator()
-        self.ev_calc = ExpectedValueCalculator(ev_threshold=ev_threshold)
 
     def calculate_basic_metrics(
         self, y_true: np.ndarray, y_pred_proba: np.ndarray
@@ -163,110 +157,6 @@ class ModelEvaluator:
             "correct_exactas": correct_exactas,
         }
 
-    def simulate_roi(
-        self,
-        test_df: pd.DataFrame,
-        model: PositionProbabilityModel,
-        feature_cols: List[str],
-        odds_col: str = "単勝",
-    ) -> Dict:
-        """
-        Simulate ROI using EV > threshold betting strategy.
-
-        Note: This simulation uses single-win odds as a proxy for exacta odds
-        since exacta odds are not directly available in the dataset.
-        For a more accurate simulation, exacta odds would be needed.
-
-        Args:
-            test_df: Test data
-            model: Trained model
-            feature_cols: Feature columns
-            odds_col: Column containing odds
-
-        Returns:
-            Dict with ROI simulation results
-        """
-        race_groups = test_df.groupby(RACE_ID_COL)
-
-        total_bet = 0
-        total_return = 0
-        num_bets = 0
-        winning_bets = 0
-        all_bets = []
-
-        for race_id, race_df in race_groups:
-            if len(race_df) < 2:
-                continue
-
-            # Get actual results
-            race_df = race_df.sort_values(TARGET_COL)
-            if pd.isna(race_df[TARGET_COL].values[:2]).any():
-                continue
-
-            actual_1st = race_df.iloc[0][HORSE_NAME_COL]
-            actual_2nd = race_df.iloc[1][HORSE_NAME_COL]
-            actual_exacta = (actual_1st, actual_2nd)
-
-            # Get predictions
-            X_race = race_df[feature_cols]
-            horse_names = race_df[HORSE_NAME_COL].tolist()
-
-            position_probs = model.predict_race(X_race, horse_names)
-            exacta_probs = self.exacta_calc.calculate_exacta_probs(position_probs)
-
-            if not exacta_probs:
-                continue
-
-            # Create synthetic exacta odds from win odds
-            # Approximate: exacta_odds ≈ win_odds_1st * win_odds_2nd * 0.8 (takeout)
-            horse_odds = dict(zip(race_df[HORSE_NAME_COL], race_df[odds_col]))
-            exacta_odds = {}
-            for (h1, h2), _ in exacta_probs.items():
-                if h1 in horse_odds and h2 in horse_odds:
-                    o1 = horse_odds[h1]
-                    o2 = horse_odds[h2]
-                    if pd.notna(o1) and pd.notna(o2):
-                        # Synthetic exacta odds (rough approximation)
-                        exacta_odds[(h1, h2)] = o1 * o2 * 0.7
-
-            # Find value bets
-            value_bets = self.ev_calc.find_value_bets(exacta_probs, exacta_odds)
-
-            for bet in value_bets:
-                total_bet += self.bet_unit
-                num_bets += 1
-
-                if bet.combination == actual_exacta:
-                    payout = self.bet_unit * bet.odds
-                    total_return += payout
-                    winning_bets += 1
-
-                all_bets.append({
-                    "race_id": race_id,
-                    "combination": bet.combination,
-                    "predicted_prob": bet.predicted_prob,
-                    "odds": bet.odds,
-                    "ev": bet.expected_value,
-                    "won": bet.combination == actual_exacta,
-                    "payout": self.bet_unit * bet.odds if bet.combination == actual_exacta else 0,
-                })
-
-        # Calculate ROI
-        roi = (total_return - total_bet) / total_bet * 100 if total_bet > 0 else 0
-        hit_rate = winning_bets / num_bets * 100 if num_bets > 0 else 0
-
-        return {
-            "total_bet": total_bet,
-            "total_return": total_return,
-            "profit": total_return - total_bet,
-            "roi_percent": roi,
-            "num_bets": num_bets,
-            "winning_bets": winning_bets,
-            "hit_rate_percent": hit_rate,
-            "avg_bet_ev": np.mean([b["ev"] for b in all_bets]) if all_bets else 0,
-            "bets_detail": all_bets,
-        }
-
     def full_evaluation(
         self,
         test_df: pd.DataFrame,
@@ -297,16 +187,7 @@ class ModelEvaluator:
         # Exacta accuracy
         exacta_metrics = self.calculate_exacta_accuracy(test_df, model, feature_cols)
 
-        # ROI simulation
-        roi_results = self.simulate_roi(test_df, model, feature_cols)
-
-        results = {
-            **basic_metrics,
-            **exacta_metrics,
-            **{k: v for k, v in roi_results.items() if k != "bets_detail"},
-        }
-
-        return results
+        return {**basic_metrics, **exacta_metrics}
 
     def print_evaluation_report(self, results: Dict) -> None:
         """Print formatted evaluation report."""
@@ -326,14 +207,9 @@ class ModelEvaluator:
         print(f"Win Accuracy:           {results.get('win_accuracy', 0):.2%}")
         print(f"Place Accuracy:         {results.get('place_accuracy', 0):.2%}")
 
-        print("\n--- ROI Simulation (EV > 1.0 Strategy) ---")
-        print(f"Total Bets:             {results.get('num_bets', 0):,}")
-        print(f"Total Wagered:          {results.get('total_bet', 0):,.0f} yen")
-        print(f"Total Return:           {results.get('total_return', 0):,.0f} yen")
-        print(f"Profit/Loss:            {results.get('profit', 0):+,.0f} yen")
-        print(f"ROI:                    {results.get('roi_percent', 0):+.1f}%")
-        print(f"Hit Rate:               {results.get('hit_rate_percent', 0):.1f}%")
-        print(f"Avg Bet EV:             {results.get('avg_bet_ev', 0):.2f}")
+        print("\n--- ROI Simulation ---")
+        print("Use Backtester for ROI simulation with real exacta odds:")
+        print("  python -m src.models.backtest_report [isotonic] [--filter]")
 
         print("=" * 60)
 
