@@ -19,6 +19,7 @@ from .data_loader import RaceDataLoader
 from .odds_loader import OddsLoader
 from .position_model import PositionProbabilityModel
 from .exacta_calculator import ExactaCalculator
+from .trifecta_calculator import TrifectaCalculator
 from .expected_value import ExpectedValueCalculator, ValueBet
 from .calibrator import (
     BinningCalibration,
@@ -54,6 +55,7 @@ __all__ = [
     # Models
     "PositionProbabilityModel",
     "ExactaCalculator",
+    "TrifectaCalculator",
     "ExpectedValueCalculator",
     "ValueBet",
     # Calibration
