@@ -16,11 +16,13 @@ from .browser import BrowserManager
 from .cache import FileCache
 from .config import ScraperConfig
 from .pipeline.api_formatter import ApiFormatter
+from .pipeline.exacta_betting import ExactaBettingPipeline
 from .rate_limiter import RateLimiter
 from .scrapers.race_card_scraper import RaceCardScraper
 from .scrapers.horse_scraper import HorseScraper
 from .scrapers.jockey_scraper import JockeyScraper
 from .scrapers.trainer_scraper import TrainerScraper
+from .scrapers.exacta_odds_scraper import ExactaOddsScraper
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +241,84 @@ async def cmd_cache_clear(args):
         print(f"Cleared {count} entries from all categories")
 
 
+async def cmd_exacta_bets(args):
+    """Handle exacta-bets command."""
+    config = ScraperConfig(
+        headless=not args.visible,
+        cache_enabled=not args.no_cache,
+    )
+
+    # Scrape race data
+    scraper = RaceScraper(config)
+    result = await scraper.scrape_race(
+        args.race_id,
+        include_profiles=True,
+        force_refresh=args.force,
+    )
+
+    # Display race info
+    formatter = ApiFormatter()
+    print(formatter.format_for_display(result["race"]))
+    print()
+
+    # Scrape exacta odds
+    print("Fetching exacta odds...")
+    odds_scraper = ExactaOddsScraper(
+        config=config,
+        cache=FileCache.from_config(config),
+        rate_limiter=RateLimiter.from_config(config),
+    )
+    exacta_odds = await odds_scraper.scrape(args.race_id, force_refresh=args.force)
+    print(f"Found {len(exacta_odds.odds)} exacta combinations")
+    print(f"Odds updated: {exacta_odds.official_datetime}")
+    print()
+
+    # Run betting analysis
+    print(f"Calling prediction API at {args.api_url}...")
+    pipeline = ExactaBettingPipeline(api_url=args.api_url)
+
+    try:
+        betting_result = pipeline.analyze(
+            race_data=result["race"],
+            exacta_odds=exacta_odds,
+            api_request_json=result["api_request"].to_json(),
+        )
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+    # Display results
+    print()
+    print(betting_result.summary())
+
+    # Output JSON if requested
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_data = {
+            "race_id": betting_result.race_id,
+            "race_name": betting_result.race_name,
+            "odds_datetime": betting_result.odds_datetime,
+            "win_probabilities": betting_result.win_probabilities,
+            "value_bets": [
+                {
+                    "first": b.first_name,
+                    "second": b.second_name,
+                    "probability": b.probability,
+                    "odds": b.odds,
+                    "expected_value": b.expected_value,
+                    "edge": b.edge,
+                    "kelly_fraction": b.kelly_fraction,
+                    "recommended_bet": b.recommended_bet,
+                }
+                for b in betting_result.value_bets
+            ],
+        }
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2)
+        print(f"\nResults saved to: {output_path}")
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -305,6 +385,28 @@ def main():
         "--category", help="Category to clear (default: all)"
     )
 
+    # exacta-bets command
+    exacta_parser = subparsers.add_parser(
+        "exacta-bets", help="Find value exacta bets for a race"
+    )
+    exacta_parser.add_argument("race_id", help="Race ID (e.g., 202506050811)")
+    exacta_parser.add_argument(
+        "--api-url", default="http://localhost:8080",
+        help="API URL (default: http://localhost:8080)"
+    )
+    exacta_parser.add_argument(
+        "-o", "--output", help="Output file path for results JSON"
+    )
+    exacta_parser.add_argument(
+        "--no-cache", action="store_true", help="Disable caching"
+    )
+    exacta_parser.add_argument(
+        "--force", action="store_true", help="Force refresh (ignore cache)"
+    )
+    exacta_parser.add_argument(
+        "--visible", action="store_true", help="Show browser window"
+    )
+
     args = parser.parse_args()
 
     # Setup logging
@@ -323,6 +425,8 @@ def main():
         asyncio.run(cmd_cache_stats(args))
     elif args.command == "cache-clear":
         asyncio.run(cmd_cache_clear(args))
+    elif args.command == "exacta-bets":
+        asyncio.run(cmd_exacta_bets(args))
     else:
         parser.print_help()
         sys.exit(1)
