@@ -1,7 +1,7 @@
 """
 Keiba AI Prediction System - Odds Data Loader
 
-Load actual exacta (馬単) odds from CSV for backtesting.
+Load actual exacta (馬単) and trifecta (三連単) odds from CSV for backtesting.
 """
 
 import logging
@@ -39,6 +39,7 @@ class OddsLoader:
 
         self.odds_df = None
         self.exacta_results = None
+        self.trifecta_results = None
 
     def load_odds(self, start_year: int = 2019, end_year: int = 2021) -> pd.DataFrame:
         """
@@ -104,6 +105,45 @@ class OddsLoader:
 
         return result
 
+    def get_trifecta_results(self) -> pd.DataFrame:
+        """
+        Extract winning trifecta (三連単) combinations and payouts.
+
+        Returns:
+            DataFrame with columns:
+            - レースID: Race ID
+            - trifecta_1st: 1st place horse number
+            - trifecta_2nd: 2nd place horse number
+            - trifecta_3rd: 3rd place horse number
+            - trifecta_odds: Payout odds (e.g., 3560.0 means 356,000 yen for 100 yen bet)
+        """
+        if self.odds_df is None:
+            self.load_odds()
+
+        result = pd.DataFrame({
+            "レースID": self.odds_df["レースID"],
+            "trifecta_1st": self.odds_df["三連単1_組合せ1"].astype(float),
+            "trifecta_2nd": self.odds_df["三連単1_組合せ2"].astype(float),
+            "trifecta_3rd": self.odds_df["三連単1_組合せ3"].astype(float),
+            "trifecta_odds": self.odds_df["三連単1_オッズ"].astype(float),
+        })
+
+        # Remove rows with missing data
+        result = result.dropna()
+
+        # Convert horse numbers to int
+        result["trifecta_1st"] = result["trifecta_1st"].astype(int)
+        result["trifecta_2nd"] = result["trifecta_2nd"].astype(int)
+        result["trifecta_3rd"] = result["trifecta_3rd"].astype(int)
+
+        self.trifecta_results = result
+
+        logger.info(f"Extracted {len(result):,} trifecta results")
+        logger.info(f"Trifecta odds range: {result['trifecta_odds'].min():.1f} - {result['trifecta_odds'].max():.1f}")
+        logger.info(f"Trifecta median odds: {result['trifecta_odds'].median():.1f}")
+
+        return result
+
     def get_win_odds(self) -> pd.DataFrame:
         """
         Extract win (単勝) odds for each race.
@@ -135,11 +175,15 @@ class OddsLoader:
         Returns:
             Dict mapping race_id to {
                 'exacta': (1st_horse, 2nd_horse, odds),
+                'trifecta': (1st_horse, 2nd_horse, 3rd_horse, odds),
                 'win': (1st_horse, odds)
             }
         """
         if self.exacta_results is None:
             self.get_exacta_results()
+
+        if self.trifecta_results is None:
+            self.get_trifecta_results()
 
         win_odds = self.get_win_odds()
 
@@ -155,6 +199,17 @@ class OddsLoader:
                     row["exacta_odds"],
                 ),
             }
+
+        # Add trifecta results
+        for _, row in self.trifecta_results.iterrows():
+            race_id = row["レースID"]
+            if race_id in lookup:
+                lookup[race_id]["trifecta"] = (
+                    row["trifecta_1st"],
+                    row["trifecta_2nd"],
+                    row["trifecta_3rd"],
+                    row["trifecta_odds"],
+                )
 
         # Add win odds
         for _, row in win_odds.iterrows():
