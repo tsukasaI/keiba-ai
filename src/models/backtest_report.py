@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - バックテストレポート
+Keiba AI Prediction System - Backtest Report
 
 Generate comprehensive backtest summary reports.
 """

@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - データローダー
+Keiba AI Prediction System - Data Loader
 
 Load and prepare training data for position prediction model.
 """

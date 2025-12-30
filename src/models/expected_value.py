@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - 期待値計算
+Keiba AI Prediction System - Expected Value Calculation
 
 Calculate expected value and identify value bets.
 """

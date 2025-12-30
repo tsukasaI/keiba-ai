@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - 確率キャリブレーション
+Keiba AI Prediction System - Probability Calibration
 
 Unified calibration module:
 - Calibration methods: Platt, Isotonic, Temperature, Binning

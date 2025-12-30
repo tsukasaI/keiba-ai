@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - 特徴量エンジニアリング
+Keiba AI Prediction System - Feature Engineering
 
 This module creates features for horse racing prediction:
 1. Basic features (horse, race conditions)

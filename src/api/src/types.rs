@@ -9,9 +9,7 @@ pub struct HorseFeatures {
     pub horse_age_num: f32,
     pub horse_sex_encoded: f32,
     pub post_position_num: f32,
-    #[serde(rename = "斤量")]
     pub weight_carried: f32,
-    #[serde(rename = "馬体重")]
     pub horse_weight: f32,
     pub jockey_win_rate: f32,
     pub jockey_place_rate: f32,

@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - モデル訓練
+Keiba AI Prediction System - Model Training
 
 Training pipeline with TimeSeriesSplit for proper validation.
 """

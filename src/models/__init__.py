@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - モデルモジュール
+Keiba AI Prediction System - Model Module
 
 Models for horse racing position prediction and exacta betting.
 """

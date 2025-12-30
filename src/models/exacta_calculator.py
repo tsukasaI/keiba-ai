@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - 馬単確率計算
+Keiba AI Prediction System - Exacta Probability Calculation
 
 Calculate Umatan (exacta) probabilities from position distributions
 using the Harville formula.

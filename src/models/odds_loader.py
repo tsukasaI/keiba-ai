@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - オッズデータローダー
+Keiba AI Prediction System - Odds Data Loader
 
 Load actual exacta (馬単) odds from CSV for backtesting.
 """

@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - データ型定義
+Keiba AI Prediction System - Data Type Definitions
 
 Shared dataclasses and type definitions.
 """

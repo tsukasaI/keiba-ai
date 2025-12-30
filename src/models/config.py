@@ -1,17 +1,18 @@
 """
-競馬AI予測システム - モデル設定
+Keiba AI Prediction System - Model Configuration
 
 Model configuration for horse racing position prediction.
 """
 
 # Feature configuration
+# Note: Some features use Japanese names to match the source CSV data
 FEATURE_GROUPS = {
     "basic": [
         "horse_age_num",
         "horse_sex_encoded",
         "post_position_num",
-        "斤量",
-        "馬体重",
+        "斤量",  # weight_carried (impost weight in kg)
+        "馬体重",  # horse_weight (horse body weight in kg)
     ],
     "jockey_trainer": [
         "jockey_win_rate",
@@ -50,13 +51,13 @@ FEATURES = (
     + FEATURE_GROUPS["odds"]
 )
 
-# Target column
+# Target column (Japanese: finishing position)
 TARGET_COL = "着順"
 
-# ID columns
-RACE_ID_COL = "レースID"
-HORSE_NAME_COL = "馬名"
-DATE_COL = "レース日付"
+# ID columns (Japanese names from source CSV)
+RACE_ID_COL = "レースID"  # race_id
+HORSE_NAME_COL = "馬名"  # horse_name
+DATE_COL = "レース日付"  # race_date
 
 # LightGBM hyperparameters
 LGBM_PARAMS = {
@@ -94,7 +95,7 @@ BETTING_CONFIG = {
 # Missing value defaults
 MISSING_DEFAULTS = {
     "last_position": 10.0,  # Middle of pack for debut horses
-    "馬体重": 480.0,  # Average horse weight
+    "馬体重": 480.0,  # horse_weight: average horse weight in kg
     "jockey_win_rate": 0.07,  # Average jockey win rate
     "trainer_win_rate": 0.07,  # Average trainer win rate
     "avg_position_last_3": 10.0,
@@ -108,7 +109,7 @@ MISSING_DEFAULTS = {
 # Profitable segments identified from backtesting
 # Filter to these for positive ROI strategy
 PROFITABLE_SEGMENTS = {
-    "racecourse": ["福島"],  # +58.6% ROI
+    "racecourse": ["福島"],  # Fukushima: +58.6% ROI
     "track_condition": ["yielding", "heavy"],  # +36.3%, +2.1% ROI
     "distance_category": ["long"],  # +11.5% ROI
 }

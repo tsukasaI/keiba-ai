@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - バックテスター
+Keiba AI Prediction System - Backtester
 
 Walkforward backtesting with actual exacta odds and stratified analysis.
 """

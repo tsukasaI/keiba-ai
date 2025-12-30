@@ -1,10 +1,10 @@
 """
-Kaggleからデータセットをダウンロード
+Download dataset from Kaggle.
 
-前提条件:
-1. Kaggle APIのインストール: pip install kaggle
-2. API認証情報の設定: ~/.kaggle/kaggle.json
-   - Kaggleアカウント設定からAPIトークンを取得
+Prerequisites:
+1. Install Kaggle API: pip install kaggle
+2. Set up API credentials: ~/.kaggle/kaggle.json
+   - Get API token from Kaggle account settings
    - chmod 600 ~/.kaggle/kaggle.json
 """
 
@@ -25,9 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 def check_kaggle_credentials() -> bool:
-    """Kaggle API認証情報の確認"""
+    """Check Kaggle API credentials."""
     kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
-    
+
     if not kaggle_json.exists():
         logger.error(
             "Kaggle API credentials not found.\n"
@@ -37,8 +37,8 @@ def check_kaggle_credentials() -> bool:
             "4. Run: chmod 600 ~/.kaggle/kaggle.json"
         )
         return False
-    
-    # パーミッションチェック（Unix系のみ）
+
+    # Permission check (Unix only)
     if os.name != "nt":
         mode = os.stat(kaggle_json).st_mode & 0o777
         if mode != 0o600:
@@ -52,14 +52,14 @@ def check_kaggle_credentials() -> bool:
 
 def download_dataset(dataset_name: str, output_dir: Path) -> bool:
     """
-    Kaggleデータセットをダウンロード
-    
+    Download Kaggle dataset.
+
     Args:
-        dataset_name: データセット名（例: "takamotoki/jra-horse-racing-dataset"）
-        output_dir: 出力ディレクトリ
-        
+        dataset_name: Dataset name (e.g., "takamotoki/jra-horse-racing-dataset")
+        output_dir: Output directory
+
     Returns:
-        成功した場合True
+        True if successful
     """
     try:
         from kaggle.api.kaggle_api_extended import KaggleApi
@@ -80,13 +80,13 @@ def download_dataset(dataset_name: str, output_dir: Path) -> bool:
             unzip=False
         )
         
-        # ZIPファイルを解凍
+        # Extract ZIP files
         zip_files = list(output_dir.glob("*.zip"))
         for zip_file in zip_files:
             logger.info(f"Extracting: {zip_file.name}")
             with zipfile.ZipFile(zip_file, 'r') as zf:
                 zf.extractall(output_dir)
-            zip_file.unlink()  # ZIPファイルを削除
+            zip_file.unlink()  # Delete ZIP file
         
         logger.info(f"Dataset downloaded to: {output_dir}")
         return True
@@ -97,7 +97,7 @@ def download_dataset(dataset_name: str, output_dir: Path) -> bool:
 
 
 def list_downloaded_files(data_dir: Path) -> None:
-    """ダウンロードしたファイル一覧を表示"""
+    """Display list of downloaded files."""
     if not data_dir.exists():
         logger.info("No data directory found")
         return
@@ -110,7 +110,7 @@ def list_downloaded_files(data_dir: Path) -> None:
 
 
 def main():
-    """メイン処理"""
+    """Main entry point."""
     if not check_kaggle_credentials():
         logger.info("\n--- Manual Download Alternative ---")
         logger.info("1. Go to: https://www.kaggle.com/datasets/takamotoki/jra-horse-racing-dataset")

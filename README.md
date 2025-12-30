@@ -1,104 +1,117 @@
-# 競馬AI予測システム (JRA)
+# Keiba AI Prediction System (JRA)
 
-JRA（日本中央競馬会）の馬単（2連単）予測を行うAIシステム。
-期待値ベースの賭け戦略で回収率向上を目指す。
+AI system for predicting Exacta (1st-2nd place in order) outcomes in JRA (Japan Racing Association) races.
+Aims to improve ROI using expected value-based betting strategy.
 
-## プロジェクト構成
+## Project Structure
 
 ```
 keiba-ai/
 ├── config/
-│   └── settings.py          # 設定ファイル
+│   └── settings.py          # Configuration
 ├── data/
-│   ├── raw/                  # 生データ（Kaggle CSV）
-│   └── processed/            # 処理済みデータ
+│   ├── raw/                  # Raw data (Kaggle CSV)
+│   └── processed/            # Processed data
 ├── src/
-│   ├── data_collection/      # データ取得
+│   ├── data_collection/      # Data collection
 │   │   └── download_kaggle.py
-│   ├── preprocessing/        # 特徴量エンジニアリング
-│   ├── models/               # 予測モデル（Phase 2）
-│   └── api/                  # 推論API（Phase 4）
-├── notebooks/                # Jupyter探索用
+│   ├── preprocessing/        # Feature engineering
+│   ├── models/               # Prediction models (Phase 2)
+│   └── api/                  # Rust inference API (Phase 4)
+├── notebooks/                # Jupyter exploration
 ├── requirements.txt
-├── CLAUDE.md                 # Claude Code用指示書
+├── CLAUDE.md                 # Claude Code instructions
 └── README.md
 ```
 
-## セットアップ
+## Setup
 
 ```bash
-# 仮想環境作成（uv使用）
+# Create virtual environment (using uv)
 uv venv
 source .venv/bin/activate
 
-# 依存パッケージインストール
+# Install dependencies
 uv pip install -r requirements.txt
 ```
 
-## データ取得
+## Data Collection
 
-### Kaggle APIを使用する場合
+### Using Kaggle API
 
 ```bash
-# 1. Kaggle API認証設定
-#    https://www.kaggle.com/settings からAPIトークンを取得
-#    ~/.kaggle/kaggle.json に保存
+# 1. Set up Kaggle API authentication
+#    Get API token from https://www.kaggle.com/settings
+#    Save to ~/.kaggle/kaggle.json
 chmod 600 ~/.kaggle/kaggle.json
 
-# 2. ダウンロード実行
+# 2. Run download
 uv run python src/data_collection/download_kaggle.py
 ```
 
-### 手動ダウンロードの場合
+### Manual Download
 
-1. https://www.kaggle.com/datasets/takamotoki/jra-horse-racing-dataset にアクセス
-2. 「Download」ボタンをクリック
-3. ZIPを解凍して `data/raw/` に配置
+1. Visit https://www.kaggle.com/datasets/takamotoki/jra-horse-racing-dataset
+2. Click "Download" button
+3. Extract ZIP to `data/raw/`
 
-## データソース
+## Data Source
 
-- **Kaggle JRA Dataset**: 1986〜2021年のJRAレースデータ
-  - レース結果、オッズ、ラップタイム、コーナー通過順位
-  - 本プロジェクトでは2019〜2021年を使用
+- **Kaggle JRA Dataset**: JRA race data from 1986-2021
+  - Race results, odds, lap times, corner passing positions
+  - This project uses 2019-2021 data
 
-## 開発フェーズ
+## Development Phases
 
-- [x] Phase 1: データ収集 & 探索
-- [ ] Phase 2: モデル構築
-- [ ] Phase 3: バックテスト
-- [ ] Phase 4: 推論API & UI
+- [x] Phase 1: Data Collection & Exploration
+- [x] Phase 2: Model Building
+- [x] Phase 3: Backtesting (+19.3% ROI with calibration)
+- [x] Phase 4: Rust Inference API
 
-## 特徴量
+## Features
 
-| カテゴリ | 特徴量 |
-|----------|--------|
-| 基本情報 | 馬齢、性別、馬体重、斤量、枠番 |
-| 騎手・調教師 | 勝率、連対率 |
-| レース条件 | 距離、芝/ダート、馬場状態、競馬場 |
-| 過去成績 | 直近5走の着順、勝率 |
-| 脚質 | 逃げ/先行/差し/追込（コーナー通過順から算出） |
-| 血統 | 父、母父の適性 |
+| Category | Features |
+|----------|----------|
+| Basic Info | horse_age, horse_sex, horse_weight, weight_carried, post_position |
+| Jockey/Trainer | win_rate, place_rate |
+| Race Conditions | distance, turf/dirt, track_condition, racecourse |
+| Past Performance | last 5 race positions, win rate |
+| Running Style | front-runner/stalker/closer (from corner positions) |
+| Pedigree | sire, broodmare sire aptitude |
 
-※調教データは有料データ（JRA-VAN）導入時に追加予定
+*Training/workout data will be added when JRA-VAN (paid data) is integrated.
 
-## 戦略
+## Strategy
 
-**期待値ベース**
+**Expected Value Based**
 ```
-期待値 = 予測的中確率 × オッズ
-期待値 > 1.0 の買い目のみ購入
+expected_value = predicted_probability × odds
+Buy only when expected_value > 1.0
 ```
 
-## 競艇プロジェクトとの違い
+## Differences from Boat Racing Project
 
-| 観点 | 競艇 | 競馬 |
-|------|------|------|
-| 出走数 | 6艇固定 | 8〜18頭（可変） |
-| データ | 公式無料提供 | Kaggle or 有料（JRA-VAN） |
-| 重要要素 | モーター、スタート | 血統、騎手、調教 |
+| Aspect | Boat Racing | Horse Racing |
+|--------|-------------|--------------|
+| Participants | 6 boats (fixed) | 8-18 horses (variable) |
+| Data | Official free download | Kaggle or paid (JRA-VAN) |
+| Key Factors | Motor, start timing | Blood, jockey, training |
 
-## 拡張予定
+## Running the API
 
-- 券種拡張（三連単、三連複、ワイド）
-- 地方競馬（NAR）対応
-- JRA-VAN連携（リアルタイム予測）
+```bash
+# From project root
+cd src/api && cargo build --release
+./target/release/keiba-api
+
+# API endpoints
+# GET  /health      - Health check
+# GET  /model/info  - Model information
+# POST /predict     - Race prediction
+```
+
+## Future Extensions
+
+- Additional bet types (Trifecta, Trio, Wide)
+- Regional racing (NAR) support
+- JRA-VAN integration (real-time predictions)

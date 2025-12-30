@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - 着順予測モデル
+Keiba AI Prediction System - Position Prediction Model
 
 LightGBM multiclass model for predicting finishing position probabilities.
 """

@@ -1,5 +1,5 @@
 """
-競馬AI予測システム - モデル評価
+Keiba AI Prediction System - Model Evaluation
 
 Evaluation metrics for position prediction model.
 Note: For ROI simulation with real exacta odds, use Backtester instead.
