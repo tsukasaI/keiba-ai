@@ -22,7 +22,22 @@ keiba-ai/
 │   ├── data_collection/      # Data download scripts
 │   ├── preprocessing/        # Feature engineering
 │   ├── models/               # ML models (Phase 2)
+│   ├── scraper/              # Live race scraper (netkeiba.com)
 │   └── api/                  # Rust inference API (Phase 4)
+│       └── src/
+│           ├── main.rs       # Entry point (CLI + server)
+│           ├── cli.rs        # CLI commands (serve, predict)
+│           ├── routes.rs     # API handlers
+│           ├── model.rs      # ONNX inference
+│           ├── exacta.rs     # Exacta calculator
+│           ├── trifecta.rs   # Trifecta calculator
+│           ├── quinella.rs   # Quinella calculator
+│           ├── trio.rs       # Trio calculator
+│           ├── wide.rs       # Wide calculator
+│           ├── betting.rs    # EV, Kelly criterion
+│           ├── calibration.rs # Probability calibration
+│           ├── config.rs     # Configuration
+│           └── types.rs      # Request/response types
 └── notebooks/                # Jupyter exploration
 ```
 
@@ -67,10 +82,17 @@ expected_value = predicted_probability × odds
 Buy only when expected_value > 1.0
 ```
 
-### Bet Type: Exacta (Umatan)
-- Predict 1st and 2nd place in exact order
-- Up to 306 combinations (18 horses × 17 remaining)
-- Similar approach to boat racing exacta
+### Supported Bet Types
+
+| Bet Type | Japanese | Description | Combinations (18 horses) |
+|----------|----------|-------------|--------------------------|
+| Exacta | 馬単 | 1st-2nd in exact order | 306 |
+| Trifecta | 三連単 | 1st-2nd-3rd in exact order | 4,896 |
+| Quinella | 馬連 | 1st-2nd any order | 153 |
+| Trio | 三連複 | 1st-2nd-3rd any order | 816 |
+| Wide | ワイド | 2 horses both in top 3 | 153 |
+
+All bet types use the Harville formula for probability calculation.
 
 ### Model Output Design
 The model should output **probability distribution for each horse's finishing position**, not just win probability. This allows easy extension to other bet types.
@@ -149,14 +171,30 @@ uv run python src/preprocessing/feature_engineering.py
 ```
 
 ### Phase 4: Run Rust API
-```bash
-# Build and run from project root
-cd src/api && cargo build --release
-./target/release/keiba-api
 
-# Or run directly
-cargo run --release
+```bash
+# Build
+cd src/api && cargo build --release
+
+# Start API server
+./target/release/keiba-api serve --port 8080
+
+# Run prediction from JSON file
+./target/release/keiba-api predict race.json --bet-types all --format table
+
+# CLI help
+./target/release/keiba-api --help
+./target/release/keiba-api serve --help
+./target/release/keiba-api predict --help
 ```
+
+#### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| GET | `/model/info` | Model information |
+| POST | `/predict` | Race prediction (all 5 bet types) |
 
 ## Important Notes
 
@@ -180,13 +218,11 @@ cargo run --release
 | Data availability | Official free download | Paid (JRA-VAN) or scraping |
 | Race frequency | Daily, 24 venues | Weekend mainly, 10 venues |
 
-## Future Extensions (Post Phase 4)
+## Future Extensions
 
-- Additional bet types (Trifecta, Trio, Wide)
-- Target profit calculation
-- Kelly criterion for bet sizing
 - NAR (Regional racing) support
 - JRA-VAN integration for real-time predictions
+- Probability calibration integration in API (calibration module ready)
 
 ## References
 

@@ -70,7 +70,7 @@ pub struct HorseEntry {
     pub features: HorseFeatures,
 }
 
-/// Prediction request
+/// Prediction request for all bet types
 #[derive(Debug, Deserialize)]
 pub struct PredictRequest {
     pub race_id: String,
@@ -78,6 +78,21 @@ pub struct PredictRequest {
     /// Optional exacta odds: "horse1-horse2" -> odds (Japanese format, e.g., 1520)
     #[serde(default)]
     pub exacta_odds: HashMap<String, f64>,
+    /// Optional trifecta odds: "horse1-horse2-horse3" -> odds
+    #[serde(default)]
+    pub trifecta_odds: HashMap<String, f64>,
+    /// Optional quinella odds: "horse1-horse2" -> odds (unordered)
+    #[serde(default)]
+    pub quinella_odds: HashMap<String, f64>,
+    /// Optional trio odds: "horse1-horse2-horse3" -> odds (unordered)
+    #[serde(default)]
+    pub trio_odds: HashMap<String, f64>,
+    /// Optional wide odds: "horse1-horse2" -> odds (unordered, top 3)
+    #[serde(default)]
+    pub wide_odds: HashMap<String, f64>,
+    /// Which bet types to calculate (default: all available)
+    #[serde(default)]
+    pub bet_types: Vec<String>,
 }
 
 /// Exacta prediction result
@@ -85,6 +100,64 @@ pub struct PredictRequest {
 pub struct ExactaPrediction {
     pub first: String,
     pub second: String,
+    pub probability: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub odds: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge: Option<f64>,
+    pub recommended: bool,
+}
+
+/// Trifecta prediction result
+#[derive(Debug, Clone, Serialize)]
+pub struct TrifectaPrediction {
+    pub first: String,
+    pub second: String,
+    pub third: String,
+    pub probability: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub odds: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge: Option<f64>,
+    pub recommended: bool,
+}
+
+/// Quinella prediction result (unordered pair)
+#[derive(Debug, Clone, Serialize)]
+pub struct QuinellaPrediction {
+    pub horses: (String, String),
+    pub probability: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub odds: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge: Option<f64>,
+    pub recommended: bool,
+}
+
+/// Trio prediction result (unordered triple)
+#[derive(Debug, Clone, Serialize)]
+pub struct TrioPrediction {
+    pub horses: (String, String, String),
+    pub probability: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub odds: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge: Option<f64>,
+    pub recommended: bool,
+}
+
+/// Wide prediction result (unordered pair, both in top 3)
+#[derive(Debug, Clone, Serialize)]
+pub struct WidePrediction {
+    pub horses: (String, String),
     pub probability: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub odds: Option<f64>,
@@ -107,11 +180,35 @@ pub struct BettingSignal {
     pub recommended_bet: u32,
 }
 
-/// Prediction results
-#[derive(Debug, Serialize)]
+/// Prediction results for all bet types
+#[derive(Debug, Serialize, Default)]
 pub struct Predictions {
     pub win_probabilities: HashMap<String, f64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub top_exactas: Vec<ExactaPrediction>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top_trifectas: Vec<TrifectaPrediction>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top_quinellas: Vec<QuinellaPrediction>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top_trios: Vec<TrioPrediction>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top_wides: Vec<WidePrediction>,
+}
+
+/// Betting signals grouped by bet type
+#[derive(Debug, Serialize, Default)]
+pub struct BettingSignals {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub exacta: Vec<BettingSignal>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub trifecta: Vec<BettingSignal>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub quinella: Vec<BettingSignal>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub trio: Vec<BettingSignal>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub wide: Vec<BettingSignal>,
 }
 
 /// Full prediction response
@@ -119,7 +216,7 @@ pub struct Predictions {
 pub struct PredictResponse {
     pub race_id: String,
     pub predictions: Predictions,
-    pub betting_signals: Vec<BettingSignal>,
+    pub betting_signals: BettingSignals,
 }
 
 /// Health check response

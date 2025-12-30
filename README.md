@@ -106,16 +106,36 @@ Buy only when expected_value > 1.0
 
 ## Running the API
 
-```bash
-# From project root
-cd src/api && cargo build --release
-./target/release/keiba-api
+### CLI Commands
 
-# API endpoints
-# GET  /health      - Health check
-# GET  /model/info  - Model information
-# POST /predict     - Race prediction
+```bash
+# Build
+cd src/api && cargo build --release
+
+# Start API server
+./target/release/keiba-api serve --port 8080
+
+# Run prediction from JSON file
+./target/release/keiba-api predict race.json --bet-types all --format table
 ```
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| GET | `/model/info` | Model information |
+| POST | `/predict` | Race prediction (all bet types) |
+
+### Supported Bet Types
+
+| Bet Type | Japanese | Description |
+|----------|----------|-------------|
+| Exacta | 馬単 | 1st-2nd in exact order |
+| Trifecta | 三連単 | 1st-2nd-3rd in exact order |
+| Quinella | 馬連 | 1st-2nd any order |
+| Trio | 三連複 | 1st-2nd-3rd any order |
+| Wide | ワイド | 2 horses both in top 3 |
 
 ## Live Race Scraper
 
@@ -173,6 +193,6 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 
 ## Future Extensions
 
-- Additional bet types (Trifecta, Trio, Wide)
 - Regional racing (NAR) support
 - JRA-VAN integration (real-time predictions)
+- Probability calibration integration in API

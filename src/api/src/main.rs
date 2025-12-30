@@ -1,27 +1,54 @@
 //! Keiba-AI Inference API
 //!
-//! REST API for horse racing predictions with full betting signals.
+//! REST API and CLI for horse racing predictions with full betting signals.
 
 mod betting;
+mod calibration;
+mod cli;
 mod config;
 mod exacta;
 mod model;
+mod quinella;
 mod routes;
+mod trifecta;
+mod trio;
 mod types;
+mod wide;
 
 use axum::{routing::get, routing::post, Router};
+use clap::Parser;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use crate::cli::{Cli, Commands};
 use crate::config::AppConfig;
 use crate::model::create_shared_model;
 use crate::routes::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Serve { host, port } => {
+            run_server(Some(host), Some(port)).await
+        }
+        Commands::Predict {
+            input,
+            bet_types,
+            format,
+            model,
+        } => {
+            cli::run_predict(input, bet_types, format, model).await
+        }
+    }
+}
+
+/// Run the API server.
+async fn run_server(host: Option<String>, port: Option<u16>) -> anyhow::Result<()> {
     // Initialize logging
     tracing_subscriber::registry()
         .with(
@@ -32,7 +59,16 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // Load configuration
-    let config = AppConfig::load()?;
+    let mut config = AppConfig::load()?;
+
+    // Override with CLI args
+    if let Some(h) = host {
+        config.server.host = h;
+    }
+    if let Some(p) = port {
+        config.server.port = p;
+    }
+
     tracing::info!("Configuration loaded");
     tracing::info!("Model path: {}", config.model.path);
 
@@ -57,10 +93,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state);
 
     // Start server
-    let addr = SocketAddr::new(
-        config.server.host.parse()?,
-        config.server.port,
-    );
+    let addr = SocketAddr::new(config.server.host.parse()?, config.server.port);
     tracing::info!("Starting server on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
