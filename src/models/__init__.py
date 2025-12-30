@@ -17,6 +17,17 @@ from .exacta_calculator import ExactaCalculator
 from .expected_value import ExpectedValueCalculator, ValueBet
 from .trainer import ModelTrainer
 from .evaluator import ModelEvaluator
+from .odds_loader import OddsLoader
+from .backtester import Backtester, BacktestResults, BetResult
+from .calibration import CalibrationAnalyzer, run_calibration_analysis
+from .backtest_report import BacktestReporter, run_full_backtest_report
+from .probability_calibrator import (
+    PlattScaling,
+    IsotonicCalibration,
+    TemperatureScaling,
+    BinningCalibration,
+    ExactaCalibrator,
+)
 
 __all__ = [
     "FEATURES",
@@ -31,4 +42,17 @@ __all__ = [
     "ValueBet",
     "ModelTrainer",
     "ModelEvaluator",
+    "OddsLoader",
+    "Backtester",
+    "BacktestResults",
+    "BetResult",
+    "CalibrationAnalyzer",
+    "run_calibration_analysis",
+    "BacktestReporter",
+    "run_full_backtest_report",
+    "PlattScaling",
+    "IsotonicCalibration",
+    "TemperatureScaling",
+    "BinningCalibration",
+    "ExactaCalibrator",
 ]
