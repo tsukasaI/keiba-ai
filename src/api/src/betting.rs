@@ -2,7 +2,7 @@
 
 use crate::config::BettingConfig;
 use crate::types::BettingSignal;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 /// Calculate expected value.
 ///
@@ -111,6 +111,157 @@ pub fn find_value_bets(
     // Sort by EV descending
     signals.sort_by(|a, b| b.expected_value.partial_cmp(&a.expected_value).unwrap());
 
+    signals
+}
+
+/// Find value bets for trifecta (3-horse ordered).
+pub fn find_value_bets_trifecta(
+    trifecta_probs: &HashMap<(String, String, String), f64>,
+    trifecta_odds: &HashMap<String, f64>,
+    config: &BettingConfig,
+) -> Vec<BettingSignal> {
+    let mut signals = Vec::new();
+
+    for ((first, second, third), &prob) in trifecta_probs {
+        let odds_key = format!("{}-{}-{}", first, second, third);
+
+        if let Some(&odds) = trifecta_odds.get(&odds_key) {
+            let ev = calculate_ev(prob, odds);
+
+            if ev > config.ev_threshold {
+                let kelly = calculate_kelly_fraction(prob, odds);
+
+                signals.push(BettingSignal {
+                    combination: (first.clone(), second.clone()),
+                    bet_type: "trifecta".to_string(),
+                    probability: prob,
+                    odds,
+                    expected_value: ev,
+                    kelly_fraction: kelly * config.kelly_fraction,
+                    recommended_bet: config.bet_unit,
+                });
+            }
+        }
+    }
+
+    signals.sort_by(|a, b| b.expected_value.partial_cmp(&a.expected_value).unwrap());
+    signals
+}
+
+/// Find value bets for quinella (2-horse unordered).
+pub fn find_value_bets_quinella(
+    quinella_probs: &HashMap<BTreeSet<String>, f64>,
+    quinella_odds: &HashMap<String, f64>,
+    config: &BettingConfig,
+) -> Vec<BettingSignal> {
+    let mut signals = Vec::new();
+
+    for (set, &prob) in quinella_probs {
+        let horses: Vec<_> = set.iter().cloned().collect();
+        if horses.len() != 2 {
+            continue;
+        }
+
+        let odds_key = format!("{}-{}", horses[0], horses[1]);
+
+        if let Some(&odds) = quinella_odds.get(&odds_key) {
+            let ev = calculate_ev(prob, odds);
+
+            if ev > config.ev_threshold {
+                let kelly = calculate_kelly_fraction(prob, odds);
+
+                signals.push(BettingSignal {
+                    combination: (horses[0].clone(), horses[1].clone()),
+                    bet_type: "quinella".to_string(),
+                    probability: prob,
+                    odds,
+                    expected_value: ev,
+                    kelly_fraction: kelly * config.kelly_fraction,
+                    recommended_bet: config.bet_unit,
+                });
+            }
+        }
+    }
+
+    signals.sort_by(|a, b| b.expected_value.partial_cmp(&a.expected_value).unwrap());
+    signals
+}
+
+/// Find value bets for trio (3-horse unordered).
+pub fn find_value_bets_trio(
+    trio_probs: &HashMap<BTreeSet<String>, f64>,
+    trio_odds: &HashMap<String, f64>,
+    config: &BettingConfig,
+) -> Vec<BettingSignal> {
+    let mut signals = Vec::new();
+
+    for (set, &prob) in trio_probs {
+        let horses: Vec<_> = set.iter().cloned().collect();
+        if horses.len() != 3 {
+            continue;
+        }
+
+        let odds_key = format!("{}-{}-{}", horses[0], horses[1], horses[2]);
+
+        if let Some(&odds) = trio_odds.get(&odds_key) {
+            let ev = calculate_ev(prob, odds);
+
+            if ev > config.ev_threshold {
+                let kelly = calculate_kelly_fraction(prob, odds);
+
+                signals.push(BettingSignal {
+                    combination: (horses[0].clone(), horses[1].clone()),
+                    bet_type: "trio".to_string(),
+                    probability: prob,
+                    odds,
+                    expected_value: ev,
+                    kelly_fraction: kelly * config.kelly_fraction,
+                    recommended_bet: config.bet_unit,
+                });
+            }
+        }
+    }
+
+    signals.sort_by(|a, b| b.expected_value.partial_cmp(&a.expected_value).unwrap());
+    signals
+}
+
+/// Find value bets for wide (2-horse both in top 3).
+pub fn find_value_bets_wide(
+    wide_probs: &HashMap<BTreeSet<String>, f64>,
+    wide_odds: &HashMap<String, f64>,
+    config: &BettingConfig,
+) -> Vec<BettingSignal> {
+    let mut signals = Vec::new();
+
+    for (set, &prob) in wide_probs {
+        let horses: Vec<_> = set.iter().cloned().collect();
+        if horses.len() != 2 {
+            continue;
+        }
+
+        let odds_key = format!("{}-{}", horses[0], horses[1]);
+
+        if let Some(&odds) = wide_odds.get(&odds_key) {
+            let ev = calculate_ev(prob, odds);
+
+            if ev > config.ev_threshold {
+                let kelly = calculate_kelly_fraction(prob, odds);
+
+                signals.push(BettingSignal {
+                    combination: (horses[0].clone(), horses[1].clone()),
+                    bet_type: "wide".to_string(),
+                    probability: prob,
+                    odds,
+                    expected_value: ev,
+                    kelly_fraction: kelly * config.kelly_fraction,
+                    recommended_bet: config.bet_unit,
+                });
+            }
+        }
+    }
+
+    signals.sort_by(|a, b| b.expected_value.partial_cmp(&a.expected_value).unwrap());
     signals
 }
 

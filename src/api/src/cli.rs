@@ -1,10 +1,12 @@
 //! CLI commands for keiba-api.
 //!
-//! Supports both API server mode and CLI prediction mode.
+//! Supports both API server mode, CLI prediction mode, and backtesting.
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+use crate::backtest::{load_race_data, print_backtest_table, Backtester, OddsLookup};
+use crate::calibration::Calibrator;
 use crate::config::AppConfig;
 use crate::exacta::{calculate_exacta_probs, extract_win_probs, get_top_exactas};
 use crate::model::create_shared_model;
@@ -52,6 +54,45 @@ pub enum Commands {
         /// Model path override
         #[arg(short, long)]
         model: Option<PathBuf>,
+    },
+
+    /// Run backtest on historical data
+    Backtest {
+        /// Path to features parquet file
+        #[arg(value_name = "FEATURES")]
+        features: PathBuf,
+
+        /// Path to exacta odds CSV file
+        #[arg(short, long)]
+        odds: PathBuf,
+
+        /// Model path override
+        #[arg(short, long)]
+        model: Option<PathBuf>,
+
+        /// Calibration config JSON file
+        #[arg(short, long)]
+        calibration: Option<PathBuf>,
+
+        /// Number of walk-forward periods
+        #[arg(long, default_value_t = 6)]
+        periods: usize,
+
+        /// Training window in months
+        #[arg(long, default_value_t = 18)]
+        train_months: usize,
+
+        /// Test window in months
+        #[arg(long, default_value_t = 3)]
+        test_months: usize,
+
+        /// EV threshold for betting
+        #[arg(long, default_value_t = 1.0)]
+        ev_threshold: f64,
+
+        /// Output format (json, table)
+        #[arg(short, long, default_value = "table")]
+        format: String,
     },
 }
 
@@ -329,4 +370,100 @@ fn print_table(response: &PredictResponse) {
         }
         println!();
     }
+}
+
+/// Run backtest on historical data.
+pub async fn run_backtest(
+    features_path: PathBuf,
+    odds_path: PathBuf,
+    model_path: Option<PathBuf>,
+    calibration_path: Option<PathBuf>,
+    periods: usize,
+    train_months: usize,
+    test_months: usize,
+    ev_threshold: f64,
+    format: String,
+) -> anyhow::Result<()> {
+    // Load configuration
+    let mut config = AppConfig::load()?;
+
+    // Override model path if provided
+    if let Some(path) = model_path {
+        config.model.path = path.to_string_lossy().to_string();
+    }
+
+    // Override EV threshold
+    config.betting.ev_threshold = ev_threshold;
+
+    // Load model
+    eprintln!("Loading model from: {}", config.model.path);
+    let model = create_shared_model(&config.model.path)?;
+    eprintln!("Model loaded successfully");
+
+    // Load calibrator
+    let calibrator = if let Some(ref path) = calibration_path {
+        eprintln!("Loading calibrator from: {}", path.display());
+        match Calibrator::from_file(path) {
+            Ok(cal) => {
+                eprintln!("Calibrator loaded: {:?}", cal);
+                cal
+            }
+            Err(e) => {
+                eprintln!("Failed to load calibrator: {}, using None", e);
+                Calibrator::None
+            }
+        }
+    } else {
+        Calibrator::None
+    };
+
+    // Load race data
+    eprintln!("Loading race data from: {}", features_path.display());
+    let races = load_race_data(&features_path)?;
+    eprintln!("Loaded {} races", races.len());
+
+    // Load odds data
+    eprintln!("Loading odds data from: {}", odds_path.display());
+    let odds_lookup = OddsLookup::from_csv(&odds_path)?;
+    eprintln!("Odds data loaded");
+
+    // Create backtester
+    let backtester = Backtester::new(model, calibrator, config.betting.clone());
+
+    // Run walk-forward backtest
+    eprintln!("Running walk-forward backtest with {} periods...", periods);
+    let results = backtester.run_walkforward(&races, &odds_lookup, periods, train_months, test_months);
+
+    // Output results
+    match format.as_str() {
+        "json" => {
+            // Create JSON output
+            let json_output = serde_json::json!({
+                "num_bets": results.num_bets,
+                "num_wins": results.num_wins,
+                "hit_rate": results.hit_rate(),
+                "total_bet": results.total_bet,
+                "total_return": results.total_return,
+                "profit": results.profit(),
+                "roi": results.roi(),
+                "max_drawdown": results.max_drawdown(),
+                "periods": results.periods.iter().map(|p| serde_json::json!({
+                    "name": p.period_name,
+                    "start_date": p.start_date.to_string(),
+                    "end_date": p.end_date.to_string(),
+                    "num_bets": p.num_bets,
+                    "num_wins": p.num_wins,
+                    "hit_rate": p.hit_rate(),
+                    "roi": p.roi(),
+                    "profit": p.profit(),
+                })).collect::<Vec<_>>(),
+            });
+            println!("{}", serde_json::to_string_pretty(&json_output)?);
+        }
+        "table" | _ => {
+            print_backtest_table(&results);
+        }
+    }
+
+    Ok(())
 }

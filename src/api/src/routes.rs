@@ -9,7 +9,11 @@ use axum::{
 use ndarray::Array2;
 use std::sync::Arc;
 
-use crate::betting::find_value_bets;
+use crate::betting::{
+    find_value_bets, find_value_bets_quinella, find_value_bets_trifecta, find_value_bets_trio,
+    find_value_bets_wide,
+};
+use crate::calibration::Calibrator;
 use crate::config::{AppConfig, FEATURE_NAMES};
 use crate::exacta::{calculate_exacta_probs, extract_win_probs, get_top_exactas};
 use crate::model::{SharedModel, NUM_FEATURES};
@@ -27,6 +31,7 @@ use crate::types::{
 pub struct AppState {
     pub model: SharedModel,
     pub config: AppConfig,
+    pub calibrator: Calibrator,
 }
 
 /// Error type for API handlers.
@@ -115,6 +120,13 @@ pub async fn predict(
     // Extract win probabilities
     let win_probs = extract_win_probs(&position_probs, &horse_ids);
 
+    // Apply calibration if enabled
+    let win_probs = if state.calibrator.is_enabled() {
+        state.calibrator.calibrate_map(&win_probs)
+    } else {
+        win_probs
+    };
+
     let min_prob = state.config.betting.min_probability;
     let max_combos = state.config.betting.max_combinations;
     let ev_threshold = state.config.betting.ev_threshold;
@@ -189,6 +201,14 @@ pub async fn predict(
                     }
                 })
                 .collect();
+
+            if !req.trifecta_odds.is_empty() {
+                betting_signals.trifecta = find_value_bets_trifecta(
+                    &trifecta_probs,
+                    &req.trifecta_odds,
+                    &state.config.betting,
+                );
+            }
         }
     }
 
@@ -215,6 +235,14 @@ pub async fn predict(
                 }
             })
             .collect();
+
+        if !req.quinella_odds.is_empty() {
+            betting_signals.quinella = find_value_bets_quinella(
+                &quinella_probs,
+                &req.quinella_odds,
+                &state.config.betting,
+            );
+        }
     }
 
     // Calculate Trio
@@ -241,6 +269,14 @@ pub async fn predict(
                     }
                 })
                 .collect();
+
+            if !req.trio_odds.is_empty() {
+                betting_signals.trio = find_value_bets_trio(
+                    &trio_probs,
+                    &req.trio_odds,
+                    &state.config.betting,
+                );
+            }
         }
     }
 
@@ -268,6 +304,14 @@ pub async fn predict(
                     }
                 })
                 .collect();
+
+            if !req.wide_odds.is_empty() {
+                betting_signals.wide = find_value_bets_wide(
+                    &wide_probs,
+                    &req.wide_odds,
+                    &state.config.betting,
+                );
+            }
         }
     }
 

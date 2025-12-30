@@ -94,6 +94,26 @@ impl Default for BettingConfig {
     }
 }
 
+/// Calibration configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalibrationConfig {
+    /// Whether calibration is enabled
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to calibration JSON config file
+    #[serde(default)]
+    pub config_file: Option<String>,
+}
+
+impl Default for CalibrationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            config_file: None,
+        }
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -103,6 +123,8 @@ pub struct AppConfig {
     pub model: ModelConfig,
     #[serde(default)]
     pub betting: BettingConfig,
+    #[serde(default)]
+    pub calibration: CalibrationConfig,
 }
 
 impl AppConfig {

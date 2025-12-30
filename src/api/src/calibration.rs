@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 
 /// Temperature scaling calibration.
 ///
@@ -137,7 +139,7 @@ impl BinningCalibration {
 
 /// Calibrator enum for runtime selection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum Calibrator {
     Temperature(TemperatureScaling),
     Binning(BinningCalibration),
@@ -184,6 +186,29 @@ impl Calibrator {
     /// Check if calibration is enabled.
     pub fn is_enabled(&self) -> bool {
         !matches!(self, Calibrator::None)
+    }
+
+    /// Load calibrator from JSON file.
+    ///
+    /// JSON format:
+    /// ```json
+    /// {"type": "temperature", "temperature": 1.15}
+    /// ```
+    /// or
+    /// ```json
+    /// {"type": "binning", "n_bins": 10, "bin_edges": [...], "bin_values": [...]}
+    /// ```
+    pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let content = fs::read_to_string(path.as_ref())?;
+        let calibrator: Calibrator = serde_json::from_str(&content)?;
+        Ok(calibrator)
+    }
+
+    /// Save calibrator to JSON file.
+    pub fn to_file<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
+        let content = serde_json::to_string_pretty(self)?;
+        fs::write(path, content)?;
+        Ok(())
     }
 }
 
@@ -262,5 +287,45 @@ mod tests {
         let calibrated = ts.calibrate_map(&probs);
         assert_eq!(calibrated.len(), 2);
         assert!((calibrated["A"] - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_calibrator_json_temperature() {
+        let json = r#"{"type": "temperature", "temperature": 1.5}"#;
+        let calibrator: Calibrator = serde_json::from_str(json).unwrap();
+
+        match calibrator {
+            Calibrator::Temperature(ts) => {
+                assert!((ts.temperature - 1.5).abs() < 0.01);
+            }
+            _ => panic!("Expected Temperature variant"),
+        }
+    }
+
+    #[test]
+    fn test_calibrator_json_binning() {
+        let json = r#"{
+            "type": "binning",
+            "n_bins": 3,
+            "bin_edges": [0.0, 0.33, 0.66, 1.0],
+            "bin_values": [0.1, 0.5, 0.9]
+        }"#;
+        let calibrator: Calibrator = serde_json::from_str(json).unwrap();
+
+        match calibrator {
+            Calibrator::Binning(bc) => {
+                assert_eq!(bc.n_bins, 3);
+                assert_eq!(bc.bin_values.len(), 3);
+            }
+            _ => panic!("Expected Binning variant"),
+        }
+    }
+
+    #[test]
+    fn test_calibrator_json_none() {
+        let json = r#"{"type": "none"}"#;
+        let calibrator: Calibrator = serde_json::from_str(json).unwrap();
+
+        assert!(!calibrator.is_enabled());
     }
 }
