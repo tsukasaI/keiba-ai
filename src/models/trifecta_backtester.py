@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from .calibrator import TrifectaCalibrator
 from .config import (
     BACKTEST_CONFIG,
     BETTING_CONFIG,
@@ -46,6 +47,7 @@ class TrifectaBacktester:
         bet_unit: float = BETTING_CONFIG["bet_unit"],
         max_bets_per_race: int = 10,  # More combinations for trifecta
         min_probability: float = 0.005,  # Lower threshold for trifecta (0.5%)
+        calibration_method: Optional[str] = None,
         filter_segments: bool = False,
         custom_filters: Optional[Dict[str, List[str]]] = None,
     ):
@@ -53,12 +55,14 @@ class TrifectaBacktester:
         self.bet_unit = bet_unit
         self.max_bets_per_race = max_bets_per_race
         self.min_probability = min_probability
+        self.calibration_method = calibration_method
         self.filter_segments = filter_segments
         self.segment_filters = custom_filters or PROFITABLE_SEGMENTS
 
         self.trifecta_calc = TrifectaCalculator()
         self.odds_loader = OddsLoader()
         self.feature_cols = FEATURES.copy()
+        self.calibrator: Optional[TrifectaCalibrator] = None
 
     def run_backtest(
         self,
@@ -205,6 +209,10 @@ class TrifectaBacktester:
         # Calculate trifecta probabilities
         trifecta_probs = self.trifecta_calc.calculate_trifecta_probs(position_probs)
 
+        # Apply calibration if available
+        if self.calibrator is not None and self.calibrator.fitted:
+            trifecta_probs = self.calibrator.calibrate_dict(trifecta_probs)
+
         # Get top trifectas by probability
         top_trifectas = self.trifecta_calc.get_top_trifectas(
             trifecta_probs, n=self.max_bets_per_race
@@ -266,6 +274,7 @@ class TrifectaBacktester:
         n_periods: int = 4,
         train_months: int = 18,
         test_months: int = 3,
+        calibration_months: int = 3,
     ) -> Tuple[TrifectaBacktestResults, List[Dict]]:
         """
         Run walkforward backtesting for trifecta.
@@ -275,12 +284,15 @@ class TrifectaBacktester:
             n_periods: Number of test periods
             train_months: Months of training data
             test_months: Months of test data per period
+            calibration_months: Months reserved for calibration (from end of train)
 
         Returns:
             (aggregate_results, period_results)
         """
         logger.info("=" * 60)
         logger.info("TRIFECTA WALKFORWARD BACKTEST")
+        if self.calibration_method:
+            logger.info(f"Calibration: {self.calibration_method}")
         if self.filter_segments:
             logger.info(f"Segment filter: {self.segment_filters}")
         logger.info("=" * 60)
@@ -315,31 +327,50 @@ class TrifectaBacktester:
             train_end = test_start
             train_start = min_date
 
+            # For calibration, split training data
+            if self.calibration_method:
+                cal_start = train_end - pd.DateOffset(months=calibration_months)
+                model_train_end = cal_start
+            else:
+                cal_start = None
+                model_train_end = train_end
+
             logger.info(f"\n--- Period {period + 1}/{n_periods} ---")
-            logger.info(f"Train: {train_start.date()} to {train_end.date()}")
+            logger.info(f"Train: {train_start.date()} to {model_train_end.date()}")
+            if self.calibration_method:
+                logger.info(f"Calib: {cal_start.date()} to {train_end.date()}")
             logger.info(f"Test:  {test_start.date()} to {test_end.date()}")
 
             # Split data
-            train_mask = (df["_date"] >= train_start) & (df["_date"] < train_end)
+            model_train_mask = (df["_date"] >= train_start) & (df["_date"] < model_train_end)
             test_mask = (df["_date"] >= test_start) & (df["_date"] < test_end)
 
-            train_df = df[train_mask]
+            model_train_df = df[model_train_mask]
             test_df = df[test_mask]
 
-            if len(train_df) < 1000 or len(test_df) < 100:
+            if len(model_train_df) < 1000 or len(test_df) < 100:
                 logger.warning("Insufficient data, skipping period")
                 current_start = test_end
                 continue
 
-            logger.info(f"Train samples: {len(train_df):,}")
+            logger.info(f"Train samples: {len(model_train_df):,}")
             logger.info(f"Test samples: {len(test_df):,}")
 
             # Train model
-            X_train = train_df[self.feature_cols]
-            y_train = self._prepare_target(train_df[TARGET_COL])
+            X_train = model_train_df[self.feature_cols]
+            y_train = self._prepare_target(model_train_df[TARGET_COL])
 
             model = PositionProbabilityModel()
             model.train(X_train, y_train)
+
+            # Train calibrator if specified
+            if self.calibration_method:
+                cal_mask = (df["_date"] >= cal_start) & (df["_date"] < train_end)
+                cal_df = df[cal_mask]
+
+                self.calibrator = TrifectaCalibrator(method=self.calibration_method)
+                self._train_calibrator(cal_df, model, odds_lookup)
+                logger.info(f"Calibrator trained on {len(cal_df):,} samples")
 
             # Run backtest
             period_result = self.run_backtest(test_df, model, odds_lookup)
@@ -379,6 +410,49 @@ class TrifectaBacktester:
         target = target.clip(lower=1, upper=18)
         return (target - 1).astype(int)
 
+    def _train_calibrator(
+        self,
+        cal_df: pd.DataFrame,
+        model: PositionProbabilityModel,
+        odds_lookup: Dict,
+    ) -> None:
+        """Train calibrator on calibration data."""
+        predictions = []
+        race_groups = cal_df.groupby(RACE_ID_COL)
+
+        for race_id, race_df in race_groups:
+            if race_id not in odds_lookup:
+                continue
+
+            odds_data = odds_lookup[race_id]
+            if "trifecta" not in odds_data:
+                continue
+
+            actual_1st, actual_2nd, actual_3rd, _ = odds_data["trifecta"]
+
+            if len(race_df) < 3:
+                continue
+
+            X_race = race_df[self.feature_cols]
+            horse_numbers = race_df["馬番"].tolist()
+
+            position_probs = model.predict_race(
+                X_race,
+                horse_names=[str(h) for h in horse_numbers],
+            )
+
+            trifecta_probs = self.trifecta_calc.calculate_trifecta_probs(position_probs)
+
+            # Collect all predictions (not just top ones) for calibration
+            for (h1, h2, h3), prob in trifecta_probs.items():
+                won = (int(h1) == actual_1st) and (int(h2) == actual_2nd) and (int(h3) == actual_3rd)
+                predictions.append({
+                    "predicted_prob": prob,
+                    "won": won,
+                })
+
+        self.calibrator.fit_from_backtest(predictions)
+
     def get_stratified_results(
         self, results: TrifectaBacktestResults
     ) -> Dict[str, Dict[str, TrifectaBacktestResults]]:
@@ -415,10 +489,11 @@ def main():
     df = loader.filter_valid_races(df)
     df = loader.handle_missing_values(df)
 
-    # Run backtest with stricter criteria
+    # Run backtest with calibration (lower threshold since calibrated probs are lower)
     backtester = TrifectaBacktester(
-        min_probability=0.02,  # 2% minimum probability (very selective)
-        max_bets_per_race=3,   # Only top 3 predictions per race
+        min_probability=0.005,  # 0.5% threshold (calibrated probs are lower)
+        max_bets_per_race=5,   # Top 5 predictions per race
+        calibration_method='isotonic',  # Use isotonic calibration
         filter_segments=True,  # Use profitable segments
     )
     results, period_results = backtester.run_walkforward_backtest(
@@ -426,6 +501,7 @@ def main():
         n_periods=4,
         train_months=18,
         test_months=3,
+        calibration_months=3,
     )
 
     # Print results

@@ -378,3 +378,73 @@ def print_calibration_comparison(results: Dict[str, Dict]) -> None:
               f"{m['ece']:>10.4f} {m['calibration_error']:>+11.2%}")
 
     print("=" * 70)
+
+
+# =============================================================================
+# Trifecta Calibrator (wrapper for trifecta betting)
+# =============================================================================
+
+class TrifectaCalibrator:
+    """Calibrator specifically for trifecta (三連単) predictions."""
+
+    METHODS = {
+        "platt": PlattScaling,
+        "isotonic": IsotonicCalibration,
+        "temperature": TemperatureScaling,
+        "binning": lambda: BinningCalibration(n_bins=15),
+    }
+
+    def __init__(self, method: str = "isotonic"):
+        if method not in self.METHODS:
+            raise ValueError(f"Unknown method: {method}. Valid: {list(self.METHODS.keys())}")
+
+        self.method = method
+        factory = self.METHODS[method]
+        self.calibrator = factory() if callable(factory) else factory
+        self.fitted = False
+
+    def fit_from_backtest(self, predictions: List[Dict]) -> "TrifectaCalibrator":
+        """Fit calibrator from backtest predictions."""
+        probs = np.array([p["predicted_prob"] for p in predictions])
+        labels = np.array([1 if p["won"] else 0 for p in predictions])
+
+        self.calibrator.fit(probs, labels)
+        self.fitted = True
+
+        logger.info(f"Trifecta calibrator fitted using {self.method}")
+        logger.info(f"  Training samples: {len(probs)}, Hit rate: {labels.mean():.4%}")
+        return self
+
+    def calibrate(self, probs: np.ndarray) -> np.ndarray:
+        if not self.fitted:
+            raise ValueError("Calibrator not fitted.")
+        return self.calibrator.calibrate(probs)
+
+    def calibrate_dict(
+        self, trifecta_probs: Dict[Tuple[str, str, str], float]
+    ) -> Dict[Tuple[str, str, str], float]:
+        """Apply calibration to trifecta probability dictionary."""
+        if not self.fitted:
+            raise ValueError("Calibrator not fitted.")
+
+        combinations = list(trifecta_probs.keys())
+        probs = np.array([trifecta_probs[k] for k in combinations])
+        calibrated = self.calibrator.calibrate(probs)
+        return {k: float(calibrated[i]) for i, k in enumerate(combinations)}
+
+    def save(self, path: Path) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump({"method": self.method, "calibrator": self.calibrator, "fitted": self.fitted}, f)
+        logger.info(f"Trifecta calibrator saved to: {path}")
+
+    @classmethod
+    def load(cls, path: Path) -> "TrifectaCalibrator":
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        instance = cls(method=data["method"])
+        instance.calibrator = data["calibrator"]
+        instance.fitted = data["fitted"]
+        logger.info(f"Trifecta calibrator loaded from: {path}")
+        return instance

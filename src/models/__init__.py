@@ -29,6 +29,7 @@ from .calibrator import (
     IsotonicCalibration,
     PlattScaling,
     TemperatureScaling,
+    TrifectaCalibrator,
     compare_calibration_methods,
 )
 from .trainer import ModelTrainer
@@ -66,6 +67,7 @@ __all__ = [
     "IsotonicCalibration",
     "PlattScaling",
     "TemperatureScaling",
+    "TrifectaCalibrator",
     "compare_calibration_methods",
     # Training & Evaluation
     "ModelTrainer",
