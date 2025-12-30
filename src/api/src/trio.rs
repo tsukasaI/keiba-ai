@@ -75,6 +75,7 @@ pub fn calculate_trio_probs(
 
 /// Convert trio probs to tuple keys for JSON serialization.
 /// Returns sorted tuple (id1, id2, id3) for consistency.
+#[allow(dead_code)]
 pub fn trio_probs_to_tuples(
     trio_probs: &HashMap<BTreeSet<String>, f64>,
 ) -> HashMap<(String, String, String), f64> {

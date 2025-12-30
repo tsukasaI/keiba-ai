@@ -95,6 +95,7 @@ impl PositionModel {
     }
 
     /// Get feature names.
+    #[allow(dead_code)]
     pub fn feature_names(&self) -> &[&str] {
         &FEATURE_NAMES
     }

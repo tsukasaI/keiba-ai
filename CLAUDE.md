@@ -24,20 +24,23 @@ keiba-ai/
 │   ├── models/               # ML models (Phase 2)
 │   ├── scraper/              # Live race scraper (netkeiba.com)
 │   └── api/                  # Rust inference API (Phase 4)
-│       └── src/
-│           ├── main.rs       # Entry point (CLI + server)
-│           ├── cli.rs        # CLI commands (serve, predict)
-│           ├── routes.rs     # API handlers
-│           ├── model.rs      # ONNX inference
-│           ├── exacta.rs     # Exacta calculator
-│           ├── trifecta.rs   # Trifecta calculator
-│           ├── quinella.rs   # Quinella calculator
-│           ├── trio.rs       # Trio calculator
-│           ├── wide.rs       # Wide calculator
-│           ├── betting.rs    # EV, Kelly criterion
-│           ├── calibration.rs # Probability calibration
-│           ├── config.rs     # Configuration
-│           └── types.rs      # Request/response types
+│       ├── src/
+│       │   ├── main.rs       # Entry point (CLI + server)
+│       │   ├── cli.rs        # CLI commands (serve, predict, backtest)
+│       │   ├── routes.rs     # API handlers
+│       │   ├── model.rs      # ONNX inference
+│       │   ├── backtest.rs   # Walk-forward backtesting
+│       │   ├── exacta.rs     # Exacta calculator
+│       │   ├── trifecta.rs   # Trifecta calculator
+│       │   ├── quinella.rs   # Quinella calculator
+│       │   ├── trio.rs       # Trio calculator
+│       │   ├── wide.rs       # Wide calculator
+│       │   ├── betting.rs    # EV, Kelly criterion
+│       │   ├── calibration.rs # Probability calibration
+│       │   ├── config.rs     # Configuration
+│       │   └── types.rs      # Request/response types
+│       └── scripts/
+│           └── prepare_backtest_data.py  # Data preparation
 └── notebooks/                # Jupyter exploration
 ```
 
@@ -182,10 +185,22 @@ cd src/api && cargo build --release
 # Run prediction from JSON file
 ./target/release/keiba-api predict race.json --bet-types all --format table
 
+# Prepare backtest data (from project root)
+PYTHONPATH=. uv run python src/api/scripts/prepare_backtest_data.py
+
+# Run backtest (from project root)
+cargo run --manifest-path src/api/Cargo.toml --release -- backtest \
+  ./data/processed/backtest_features.parquet \
+  --odds ./data/processed/exacta_odds.csv \
+  --bet-type exacta \
+  --calibration ./data/models/calibration.json \
+  --ev-threshold 1.0
+
 # CLI help
 ./target/release/keiba-api --help
 ./target/release/keiba-api serve --help
 ./target/release/keiba-api predict --help
+./target/release/keiba-api backtest --help
 ```
 
 #### API Endpoints
@@ -195,6 +210,14 @@ cd src/api && cargo build --release
 | GET | `/health` | Health check |
 | GET | `/model/info` | Model information |
 | POST | `/predict` | Race prediction (all 5 bet types) |
+
+#### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `serve` | Start REST API server |
+| `predict` | Run prediction on race JSON file |
+| `backtest` | Run walk-forward backtest on historical data |
 
 ## Important Notes
 
@@ -218,11 +241,20 @@ cd src/api && cargo build --release
 | Data availability | Official free download | Paid (JRA-VAN) or scraping |
 | Race frequency | Daily, 24 venues | Weekend mainly, 10 venues |
 
+## Implemented Features
+
+- ✅ All 5 bet types (Exacta, Trifecta, Quinella, Trio, Wide)
+- ✅ Probability calibration (temperature scaling, binning)
+- ✅ Walk-forward backtesting CLI
+- ✅ Kelly criterion bet sizing
+- ✅ Expected value filtering
+
 ## Future Extensions
 
 - NAR (Regional racing) support
-- JRA-VAN integration for real-time predictions
-- Probability calibration integration in API (calibration module ready)
+- JRA-VAN integration for real-time predictions with pre-race odds
+- Production deployment (Docker, monitoring)
+- Model retraining pipeline
 
 ## References
 

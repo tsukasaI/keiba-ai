@@ -51,6 +51,7 @@ pub fn calculate_quinella_probs(
 
 /// Convert quinella probs to tuple keys for JSON serialization.
 /// Returns sorted tuple (smaller_id, larger_id) for consistency.
+#[allow(dead_code)]
 pub fn quinella_probs_to_tuples(
     quinella_probs: &HashMap<BTreeSet<String>, f64>,
 ) -> HashMap<(String, String), f64> {

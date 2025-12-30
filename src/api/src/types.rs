@@ -64,6 +64,7 @@ impl HorseFeatures {
 
 /// Horse entry in prediction request
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct HorseEntry {
     pub horse_id: String,
     pub horse_name: Option<String>,

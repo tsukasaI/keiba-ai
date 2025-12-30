@@ -54,6 +54,7 @@ pub fn calculate_kelly_fraction(probability: f64, odds: f64) -> f64 {
 ///
 /// # Returns
 /// Recommended bet amount (rounded to bet unit)
+#[allow(dead_code)]
 pub fn calculate_bet_size(
     probability: f64,
     odds: f64,

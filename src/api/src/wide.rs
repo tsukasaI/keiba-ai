@@ -82,6 +82,7 @@ pub fn calculate_wide_probs(
 
 /// Convert wide probs to tuple keys for JSON serialization.
 /// Returns sorted tuple (smaller_id, larger_id) for consistency.
+#[allow(dead_code)]
 pub fn wide_probs_to_tuples(
     wide_probs: &HashMap<BTreeSet<String>, f64>,
 ) -> HashMap<(String, String), f64> {

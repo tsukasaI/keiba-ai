@@ -59,6 +59,7 @@ impl BetType {
 
 /// A single bet result.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct BetResult {
     pub race_id: String,
     pub race_date: NaiveDate,
@@ -168,6 +169,7 @@ pub struct RaceOdds {
 }
 
 impl RaceOdds {
+    #[allow(dead_code)]
     pub fn get_odds(&self, bet_type: BetType, key: &str) -> Option<f64> {
         match bet_type {
             BetType::Exacta => self.exacta_odds.get(key).copied(),
@@ -180,6 +182,7 @@ impl RaceOdds {
 }
 
 /// Lookup for odds data.
+#[allow(dead_code)]
 pub struct OddsLookup {
     data: HashMap<String, RaceOdds>, // race_id -> RaceOdds
     bet_type: BetType,
@@ -266,6 +269,7 @@ impl OddsLookup {
     }
 
     /// Get the bet type this lookup is for.
+    #[allow(dead_code)]
     pub fn bet_type(&self) -> BetType {
         self.bet_type
     }

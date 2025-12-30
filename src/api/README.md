@@ -257,6 +257,25 @@ python src/models/export_calibration.py calibrator.pkl calibration.json
 python src/models/export_calibration.py --temperature 1.15 calibration.json
 ```
 
+## Data Preparation
+
+The `scripts/prepare_backtest_data.py` script prepares data for backtesting from raw Kaggle data.
+
+```bash
+# Run from project root
+PYTHONPATH=. uv run python src/api/scripts/prepare_backtest_data.py
+```
+
+This creates:
+- `data/processed/backtest_features.parquet` - Features with English column names
+- `data/processed/exacta_odds.csv` - Exacta (馬単) odds
+- `data/processed/quinella_odds.csv` - Quinella (馬連) odds
+- `data/processed/wide_odds.csv` - Wide (ワイド) odds
+- `data/processed/trifecta_odds.csv` - Trifecta (三連単) odds
+- `data/processed/trio_odds.csv` - Trio (三連複) odds
+
+**Note:** The Kaggle dataset only contains winning combination odds (post-race), not pre-race odds for all combinations. This means backtest hit rates will be artificially high.
+
 ## Data Formats
 
 ### Features Parquet (for backtest)
@@ -282,6 +301,31 @@ For 3-horse bets (trifecta, trio):
 race_id,first,second,third,odds
 202312100101,1,2,3,15200
 202312100101,1,3,2,18500
+```
+
+## Project Structure
+
+```
+src/api/
+├── src/
+│   ├── main.rs          # Entry point, CLI and server setup
+│   ├── cli.rs           # CLI command handlers
+│   ├── routes.rs        # API route handlers
+│   ├── model.rs         # ONNX model inference
+│   ├── calibration.rs   # Probability calibration
+│   ├── betting.rs       # EV calculation, Kelly criterion
+│   ├── backtest.rs      # Walk-forward backtesting
+│   ├── config.rs        # Configuration loading
+│   ├── types.rs         # Request/response types
+│   ├── exacta.rs        # Exacta probability calculation
+│   ├── trifecta.rs      # Trifecta probability calculation
+│   ├── quinella.rs      # Quinella probability calculation
+│   ├── trio.rs          # Trio probability calculation
+│   └── wide.rs          # Wide probability calculation
+├── scripts/
+│   └── prepare_backtest_data.py  # Data preparation script
+├── Cargo.toml
+└── README.md
 ```
 
 ## Development

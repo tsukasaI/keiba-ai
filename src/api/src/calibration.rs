@@ -23,6 +23,7 @@ impl Default for TemperatureScaling {
 }
 
 impl TemperatureScaling {
+    #[allow(dead_code)]
     pub fn new(temperature: f64) -> Self {
         Self {
             temperature: temperature.clamp(0.1, 10.0),
@@ -45,6 +46,7 @@ impl TemperatureScaling {
     }
 
     /// Calibrate multiple probabilities.
+    #[allow(dead_code)]
     pub fn calibrate_vec(&self, probs: &[f64]) -> Vec<f64> {
         probs.iter().map(|p| self.calibrate(*p)).collect()
     }
@@ -92,6 +94,7 @@ impl BinningCalibration {
     }
 
     /// Create from pre-fitted bin values.
+    #[allow(dead_code)]
     pub fn from_values(bin_values: Vec<f64>) -> Self {
         let n_bins = bin_values.len();
         let bin_edges: Vec<f64> = (0..=n_bins).map(|i| i as f64 / n_bins as f64).collect();
@@ -121,6 +124,7 @@ impl BinningCalibration {
     }
 
     /// Calibrate multiple probabilities.
+    #[allow(dead_code)]
     pub fn calibrate_vec(&self, probs: &[f64]) -> Vec<f64> {
         probs.iter().map(|p| self.calibrate(*p)).collect()
     }
@@ -154,6 +158,7 @@ impl Default for Calibrator {
 
 impl Calibrator {
     /// Calibrate a single probability.
+    #[allow(dead_code)]
     pub fn calibrate(&self, prob: f64) -> f64 {
         match self {
             Calibrator::Temperature(t) => t.calibrate(prob),
@@ -163,6 +168,7 @@ impl Calibrator {
     }
 
     /// Calibrate multiple probabilities.
+    #[allow(dead_code)]
     pub fn calibrate_vec(&self, probs: &[f64]) -> Vec<f64> {
         match self {
             Calibrator::Temperature(t) => t.calibrate_vec(probs),
@@ -205,6 +211,7 @@ impl Calibrator {
     }
 
     /// Save calibrator to JSON file.
+    #[allow(dead_code)]
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
         let content = serde_json::to_string_pretty(self)?;
         fs::write(path, content)?;
