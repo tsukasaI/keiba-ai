@@ -11,13 +11,19 @@ keiba-ai/
 │   └── settings.py          # Configuration
 ├── data/
 │   ├── raw/                  # Raw data (Kaggle CSV)
-│   └── processed/            # Processed data
+│   ├── processed/            # Processed data
+│   └── cache/                # Scraper cache (auto-created)
 ├── src/
 │   ├── data_collection/      # Data collection
 │   │   └── download_kaggle.py
 │   ├── preprocessing/        # Feature engineering
-│   ├── models/               # Prediction models (Phase 2)
-│   └── api/                  # Rust inference API (Phase 4)
+│   ├── models/               # Prediction models
+│   ├── scraper/              # Live race scraper
+│   │   ├── parsers/          # HTML parsers (race_card, horse, jockey, trainer)
+│   │   ├── scrapers/         # Async scrapers with rate limiting
+│   │   ├── pipeline/         # Feature building for API
+│   │   └── cli.py            # Command-line interface
+│   └── api/                  # Rust inference API
 ├── notebooks/                # Jupyter exploration
 ├── requirements.txt
 ├── CLAUDE.md                 # Claude Code instructions
@@ -67,6 +73,7 @@ uv run python src/data_collection/download_kaggle.py
 - [x] Phase 2: Model Building
 - [x] Phase 3: Backtesting (+19.3% ROI with calibration)
 - [x] Phase 4: Rust Inference API
+- [x] Phase 5: Live Race Scraper (netkeiba.com)
 
 ## Features
 
@@ -109,6 +116,60 @@ cd src/api && cargo build --release
 # GET  /model/info  - Model information
 # POST /predict     - Race prediction
 ```
+
+## Live Race Scraper
+
+Scrape live race data from netkeiba.com and get predictions.
+
+### Install Browser
+
+```bash
+# Install Playwright browsers (one-time setup)
+playwright install chromium
+```
+
+### CLI Commands
+
+```bash
+# Scrape a single race (outputs JSON with 23 features per horse)
+uv run python -m src.scraper.cli scrape-race 202506050811
+
+# Scrape and call prediction API
+uv run python -m src.scraper.cli predict-race 202506050811 \
+    --api-url http://localhost:8080
+
+# Verbose mode (show scraping progress)
+uv run python -m src.scraper.cli -v scrape-race 202506050811
+
+# Clear cache
+uv run python -m src.scraper.cli clear-cache
+```
+
+### Race ID Format
+
+Race ID format: `YYYYRRCCNNDD` where:
+- `YYYY` = Year (e.g., 2025)
+- `RR` = Racecourse code (e.g., 06 = Nakayama)
+- `CC` = Kai (meeting number)
+- `NN` = Day number
+- `DD` = Race number (01-12)
+
+Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記念)
+
+### Features Scraped
+
+| Source | Features |
+|--------|----------|
+| Race Card | post_position, weight_carried, distance, surface, track_condition, odds |
+| Horse Profile | age, sex, career races, last 5 race stats |
+| Jockey Profile | win_rate, place_rate, career races |
+| Trainer Profile | win_rate, place_rate, career races |
+
+### Rate Limiting
+
+- 20 requests/minute with 1.5-3s random delays
+- Uses stealth browser to avoid detection
+- JSON cache with 24h TTL (configurable)
 
 ## Future Extensions
 

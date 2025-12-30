@@ -1,25 +1,32 @@
-# 競馬AI予測システム - 依存パッケージ
+# Keiba AI Prediction System - Dependencies
 # Updated: 2025-12-30
 
-# データ取得
+# Data Collection
 kaggle>=1.8.0
 
-# データ処理
+# Data Processing
 pandas>=2.3.0
 numpy>=2.4.0
-pyarrow>=22.0.0  # parquet形式対応
+pyarrow>=22.0.0  # Parquet format support
 
-# 機械学習（Phase 2で使用）
+# Machine Learning (Phase 2)
 scikit-learn>=1.8.0
 lightgbm>=4.6.0
 
-# Jupyter（探索用）
+# Jupyter (Exploration)
 jupyter>=1.1.0
 matplotlib>=3.10.0
 seaborn>=0.13.0
 plotly>=6.5.0
 
-# 開発ツール
+# Web Scraping (Phase 5)
+playwright>=1.49.0
+playwright-stealth>=1.0.6
+beautifulsoup4>=4.12.0
+lxml>=5.3.0
+
+# Development Tools
 pytest>=9.0.0
+pytest-asyncio>=0.24.0
 black>=25.0.0
 ruff>=0.14.0

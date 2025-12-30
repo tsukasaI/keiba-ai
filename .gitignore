@@ -45,6 +45,10 @@ data/processed/*.csv
 data/models/*.pkl
 data/models/*.onnx
 
+# Scraper cache and temp files
+data/cache/
+data/tmp/
+
 # Keep directory structure
 !data/raw/.gitkeep
 !data/processed/.gitkeep
