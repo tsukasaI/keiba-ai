@@ -5,7 +5,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::backtest::{load_race_data, print_backtest_table, Backtester, OddsLookup};
+use crate::backtest::{load_race_data, print_backtest_table, Backtester, BetType, OddsLookup};
 use crate::calibration::Calibrator;
 use crate::config::AppConfig;
 use crate::exacta::{calculate_exacta_probs, extract_win_probs, get_top_exactas};
@@ -62,9 +62,13 @@ pub enum Commands {
         #[arg(value_name = "FEATURES")]
         features: PathBuf,
 
-        /// Path to exacta odds CSV file
+        /// Path to odds CSV file
         #[arg(short, long)]
         odds: PathBuf,
+
+        /// Bet type to backtest (exacta, trifecta, quinella, trio, wide)
+        #[arg(short, long, default_value = "exacta")]
+        bet_type: String,
 
         /// Model path override
         #[arg(short, long)]
@@ -376,6 +380,7 @@ fn print_table(response: &PredictResponse) {
 pub async fn run_backtest(
     features_path: PathBuf,
     odds_path: PathBuf,
+    bet_type_str: String,
     model_path: Option<PathBuf>,
     calibration_path: Option<PathBuf>,
     periods: usize,
@@ -384,6 +389,14 @@ pub async fn run_backtest(
     ev_threshold: f64,
     format: String,
 ) -> anyhow::Result<()> {
+    // Parse bet type
+    let bet_type = BetType::from_str(&bet_type_str).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Invalid bet type: {}. Valid types: exacta, trifecta, quinella, trio, wide",
+            bet_type_str
+        )
+    })?;
+
     // Load configuration
     let mut config = AppConfig::load()?;
 
@@ -423,16 +436,25 @@ pub async fn run_backtest(
     eprintln!("Loaded {} races", races.len());
 
     // Load odds data
-    eprintln!("Loading odds data from: {}", odds_path.display());
-    let odds_lookup = OddsLookup::from_csv(&odds_path)?;
+    eprintln!(
+        "Loading {} odds data from: {}",
+        bet_type.name(),
+        odds_path.display()
+    );
+    let odds_lookup = OddsLookup::from_csv(&odds_path, bet_type)?;
     eprintln!("Odds data loaded");
 
     // Create backtester
-    let backtester = Backtester::new(model, calibrator, config.betting.clone());
+    let backtester = Backtester::new(model, calibrator, config.betting.clone(), bet_type);
 
     // Run walk-forward backtest
-    eprintln!("Running walk-forward backtest with {} periods...", periods);
-    let results = backtester.run_walkforward(&races, &odds_lookup, periods, train_months, test_months);
+    eprintln!(
+        "Running walk-forward backtest for {} with {} periods...",
+        bet_type.name(),
+        periods
+    );
+    let results =
+        backtester.run_walkforward(&races, &odds_lookup, periods, train_months, test_months);
 
     // Output results
     match format.as_str() {

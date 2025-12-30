@@ -4,7 +4,7 @@
 
 use chrono::NaiveDate;
 use polars::prelude::*;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use crate::betting::calculate_ev;
@@ -12,16 +12,59 @@ use crate::calibration::Calibrator;
 use crate::config::{BettingConfig, FEATURE_NAMES};
 use crate::exacta::{calculate_exacta_probs, extract_win_probs};
 use crate::model::{SharedModel, NUM_FEATURES};
+use crate::quinella::calculate_quinella_probs;
+use crate::trifecta::calculate_trifecta_probs;
+use crate::trio::calculate_trio_probs;
+use crate::wide::calculate_wide_probs;
+
+/// Bet type for backtesting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BetType {
+    Exacta,    // 馬単 - 1st and 2nd in order
+    Trifecta,  // 三連単 - 1st, 2nd, 3rd in order
+    Quinella,  // 馬連 - 1st and 2nd any order
+    Trio,      // 三連複 - 1st, 2nd, 3rd any order
+    Wide,      // ワイド - 2 horses in top 3
+}
+
+impl BetType {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "exacta" | "umatan" => Some(BetType::Exacta),
+            "trifecta" | "sanrentan" => Some(BetType::Trifecta),
+            "quinella" | "umaren" => Some(BetType::Quinella),
+            "trio" | "sanrenpuku" => Some(BetType::Trio),
+            "wide" => Some(BetType::Wide),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            BetType::Exacta => "exacta",
+            BetType::Trifecta => "trifecta",
+            BetType::Quinella => "quinella",
+            BetType::Trio => "trio",
+            BetType::Wide => "wide",
+        }
+    }
+
+    pub fn min_horses(&self) -> usize {
+        match self {
+            BetType::Exacta | BetType::Quinella | BetType::Wide => 2,
+            BetType::Trifecta | BetType::Trio => 3,
+        }
+    }
+}
 
 /// A single bet result.
 #[derive(Debug, Clone)]
 pub struct BetResult {
     pub race_id: String,
     pub race_date: NaiveDate,
-    pub predicted_1st: String,
-    pub predicted_2nd: String,
-    pub actual_1st: String,
-    pub actual_2nd: String,
+    pub bet_type: BetType,
+    pub combination: Vec<String>,     // Horse numbers in bet order
+    pub actual_positions: Vec<String>, // Actual top finishers (1st, 2nd, 3rd)
     pub probability: f64,
     pub odds: f64,
     pub expected_value: f64,
@@ -115,21 +158,41 @@ impl BacktestResults {
 }
 
 /// Odds data for a single race.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RaceOdds {
-    pub exacta_odds: HashMap<String, f64>, // "1-2" -> 1520.0
+    pub exacta_odds: HashMap<String, f64>,    // "1-2" -> 1520.0 (ordered)
+    pub trifecta_odds: HashMap<String, f64>,  // "1-2-3" -> 15200.0 (ordered)
+    pub quinella_odds: HashMap<String, f64>,  // "1-2" -> 760.0 (unordered, sorted)
+    pub trio_odds: HashMap<String, f64>,      // "1-2-3" -> 5200.0 (unordered, sorted)
+    pub wide_odds: HashMap<String, f64>,      // "1-2" -> 380.0 (unordered, sorted)
+}
+
+impl RaceOdds {
+    pub fn get_odds(&self, bet_type: BetType, key: &str) -> Option<f64> {
+        match bet_type {
+            BetType::Exacta => self.exacta_odds.get(key).copied(),
+            BetType::Trifecta => self.trifecta_odds.get(key).copied(),
+            BetType::Quinella => self.quinella_odds.get(key).copied(),
+            BetType::Trio => self.trio_odds.get(key).copied(),
+            BetType::Wide => self.wide_odds.get(key).copied(),
+        }
+    }
 }
 
 /// Lookup for odds data.
 pub struct OddsLookup {
     data: HashMap<String, RaceOdds>, // race_id -> RaceOdds
+    bet_type: BetType,
 }
 
 impl OddsLookup {
-    /// Load odds from CSV file.
+    /// Load odds from CSV file for a specific bet type.
     ///
-    /// Expected columns: race_id, first, second, odds
-    pub fn from_csv<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+    /// For 2-horse bets (exacta, quinella, wide):
+    ///   Expected columns: race_id, first, second, odds
+    /// For 3-horse bets (trifecta, trio):
+    ///   Expected columns: race_id, first, second, third, odds
+    pub fn from_csv<P: AsRef<Path>>(path: P, bet_type: BetType) -> anyhow::Result<Self> {
         let df = CsvReadOptions::default()
             .with_has_header(true)
             .try_into_reader_with_file_path(Some(path.as_ref().to_path_buf()))?
@@ -137,33 +200,74 @@ impl OddsLookup {
 
         let mut data: HashMap<String, RaceOdds> = HashMap::new();
 
-        let race_ids = df.column("race_id")?.str()?;
+        // Handle race_id as either string or i64
+        let race_id_col = df.column("race_id")?;
         let firsts = df.column("first")?.i64()?;
         let seconds = df.column("second")?.i64()?;
+        let thirds = df.column("third").ok();
         let odds_col = df.column("odds")?.f64()?;
 
         for i in 0..df.height() {
-            let race_id = race_ids.get(i).unwrap_or("").to_string();
+            let race_id = match race_id_col.dtype() {
+                DataType::String => race_id_col.str()?.get(i).unwrap_or("").to_string(),
+                DataType::Int64 => race_id_col.i64()?.get(i).unwrap_or(0).to_string(),
+                _ => continue,
+            };
             let first = firsts.get(i).unwrap_or(0);
             let second = seconds.get(i).unwrap_or(0);
             let odds = odds_col.get(i).unwrap_or(0.0);
 
-            let key = format!("{}-{}", first, second);
+            let entry = data.entry(race_id.clone()).or_default();
 
-            data.entry(race_id.clone())
-                .or_insert_with(|| RaceOdds {
-                    exacta_odds: HashMap::new(),
-                })
-                .exacta_odds
-                .insert(key, odds);
+            match bet_type {
+                BetType::Exacta => {
+                    let key = format!("{}-{}", first, second);
+                    entry.exacta_odds.insert(key, odds);
+                }
+                BetType::Trifecta => {
+                    if let Some(ref third_col) = thirds {
+                        let third = third_col.i64().ok().and_then(|c| c.get(i)).unwrap_or(0);
+                        let key = format!("{}-{}-{}", first, second, third);
+                        entry.trifecta_odds.insert(key, odds);
+                    }
+                }
+                BetType::Quinella => {
+                    // Unordered - use sorted key
+                    let mut horses = [first, second];
+                    horses.sort();
+                    let key = format!("{}-{}", horses[0], horses[1]);
+                    entry.quinella_odds.insert(key, odds);
+                }
+                BetType::Trio => {
+                    if let Some(ref third_col) = thirds {
+                        let third = third_col.i64().ok().and_then(|c| c.get(i)).unwrap_or(0);
+                        let mut horses = [first, second, third];
+                        horses.sort();
+                        let key = format!("{}-{}-{}", horses[0], horses[1], horses[2]);
+                        entry.trio_odds.insert(key, odds);
+                    }
+                }
+                BetType::Wide => {
+                    // Unordered - use sorted key
+                    let mut horses = [first, second];
+                    horses.sort();
+                    let key = format!("{}-{}", horses[0], horses[1]);
+                    entry.wide_odds.insert(key, odds);
+                }
+            }
         }
 
-        Ok(Self { data })
+        Ok(Self { data, bet_type })
     }
 
     /// Get odds for a race.
     pub fn get(&self, race_id: &str) -> Option<&RaceOdds> {
         self.data.get(race_id)
+    }
+
+    /// Get the bet type this lookup is for.
+    pub fn bet_type(&self) -> BetType {
+        self.bet_type
     }
 }
 
@@ -244,31 +348,39 @@ pub fn load_race_data<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<RaceData>> 
     Ok(races)
 }
 
-/// Backtester for exacta betting strategy.
+/// Backtester for betting strategies.
 pub struct Backtester {
     model: SharedModel,
     calibrator: Calibrator,
     config: BettingConfig,
     bet_unit: f64,
+    bet_type: BetType,
 }
 
 impl Backtester {
-    pub fn new(model: SharedModel, calibrator: Calibrator, config: BettingConfig) -> Self {
+    pub fn new(
+        model: SharedModel,
+        calibrator: Calibrator,
+        config: BettingConfig,
+        bet_type: BetType,
+    ) -> Self {
         let bet_unit = config.bet_unit as f64;
         Self {
             model,
             calibrator,
             config,
             bet_unit,
+            bet_type,
         }
     }
 
     /// Run backtest on a list of races.
     pub fn run(&self, races: &[RaceData], odds_lookup: &OddsLookup) -> BacktestResults {
         let mut results = BacktestResults::default();
+        let min_horses = self.bet_type.min_horses();
 
         for race in races {
-            if race.horse_ids.len() < 2 {
+            if race.horse_ids.len() < min_horses {
                 continue;
             }
 
@@ -305,69 +417,209 @@ impl Backtester {
                 None => continue,
             };
 
-            // Calculate exacta probs
-            let exacta_probs = calculate_exacta_probs(&win_probs, self.config.min_probability);
+            // Find actual top finishers
+            let actual_top: Vec<String> = (1..=3)
+                .filter_map(|pos| {
+                    race.actual_positions
+                        .iter()
+                        .position(|&p| p == pos)
+                        .map(|i| race.horse_ids[i].clone())
+                })
+                .collect();
 
-            // Find actual 1st and 2nd place
-            let actual_1st = race
-                .actual_positions
-                .iter()
-                .position(|&p| p == 1)
-                .map(|i| race.horse_ids[i].clone());
-            let actual_2nd = race
-                .actual_positions
-                .iter()
-                .position(|&p| p == 2)
-                .map(|i| race.horse_ids[i].clone());
+            if actual_top.len() < min_horses {
+                continue;
+            }
 
-            let (actual_1st, actual_2nd) = match (actual_1st, actual_2nd) {
-                (Some(a), Some(b)) => (a, b),
-                _ => continue,
-            };
+            // Process bets based on bet type
+            self.process_bets_for_type(
+                &win_probs,
+                race_odds,
+                &actual_top,
+                &race.race_id,
+                race.race_date,
+                &mut results,
+            );
+        }
 
-            // Find value bets
-            for ((first, second), &prob) in &exacta_probs {
-                let odds_key = format!("{}-{}", first, second);
+        results
+    }
 
-                if let Some(&odds) = race_odds.exacta_odds.get(&odds_key) {
-                    let ev = calculate_ev(prob, odds);
+    /// Process bets for the specific bet type.
+    fn process_bets_for_type(
+        &self,
+        win_probs: &HashMap<String, f64>,
+        race_odds: &RaceOdds,
+        actual_top: &[String],
+        race_id: &str,
+        race_date: NaiveDate,
+        results: &mut BacktestResults,
+    ) {
+        let min_prob = self.config.min_probability;
 
-                    if ev > self.config.ev_threshold {
-                        let won = first == &actual_1st && second == &actual_2nd;
-                        let profit = if won {
-                            (odds / 100.0) * self.bet_unit - self.bet_unit
-                        } else {
-                            -self.bet_unit
-                        };
-
-                        let bet = BetResult {
-                            race_id: race.race_id.clone(),
-                            race_date: race.race_date,
-                            predicted_1st: first.clone(),
-                            predicted_2nd: second.clone(),
-                            actual_1st: actual_1st.clone(),
-                            actual_2nd: actual_2nd.clone(),
-                            probability: prob,
-                            odds,
-                            expected_value: ev,
-                            won,
-                            profit,
-                        };
-
-                        results.bets.push(bet);
-                        results.num_bets += 1;
-                        results.total_bet += self.bet_unit;
-
-                        if won {
-                            results.num_wins += 1;
-                            results.total_return += odds / 100.0 * self.bet_unit;
-                        }
+        match self.bet_type {
+            BetType::Exacta => {
+                let probs = calculate_exacta_probs(win_probs, min_prob);
+                for ((first, second), &prob) in &probs {
+                    let odds_key = format!("{}-{}", first, second);
+                    if let Some(odds) = race_odds.exacta_odds.get(&odds_key) {
+                        self.record_bet_if_value(
+                            prob,
+                            *odds,
+                            vec![first.clone(), second.clone()],
+                            actual_top,
+                            race_id,
+                            race_date,
+                            results,
+                            |combo, actual| combo[0] == actual[0] && combo[1] == actual[1],
+                        );
+                    }
+                }
+            }
+            BetType::Trifecta => {
+                let probs = calculate_trifecta_probs(win_probs, min_prob);
+                for ((first, second, third), &prob) in &probs {
+                    let odds_key = format!("{}-{}-{}", first, second, third);
+                    if let Some(odds) = race_odds.trifecta_odds.get(&odds_key) {
+                        self.record_bet_if_value(
+                            prob,
+                            *odds,
+                            vec![first.clone(), second.clone(), third.clone()],
+                            actual_top,
+                            race_id,
+                            race_date,
+                            results,
+                            |combo, actual| {
+                                combo[0] == actual[0] && combo[1] == actual[1] && combo[2] == actual[2]
+                            },
+                        );
+                    }
+                }
+            }
+            BetType::Quinella => {
+                let probs = calculate_quinella_probs(win_probs, min_prob);
+                for (set, &prob) in &probs {
+                    let horses: Vec<_> = set.iter().cloned().collect();
+                    let mut sorted = horses.clone();
+                    sorted.sort();
+                    let odds_key = format!("{}-{}", sorted[0], sorted[1]);
+                    if let Some(odds) = race_odds.quinella_odds.get(&odds_key) {
+                        self.record_bet_if_value(
+                            prob,
+                            *odds,
+                            horses,
+                            actual_top,
+                            race_id,
+                            race_date,
+                            results,
+                            |combo, actual| {
+                                let combo_set: BTreeSet<_> = combo.iter().collect();
+                                let actual_set: BTreeSet<_> = actual[..2].iter().collect();
+                                combo_set == actual_set
+                            },
+                        );
+                    }
+                }
+            }
+            BetType::Trio => {
+                let probs = calculate_trio_probs(win_probs, min_prob);
+                for (set, &prob) in &probs {
+                    let horses: Vec<_> = set.iter().cloned().collect();
+                    let mut sorted = horses.clone();
+                    sorted.sort();
+                    let odds_key = format!("{}-{}-{}", sorted[0], sorted[1], sorted[2]);
+                    if let Some(odds) = race_odds.trio_odds.get(&odds_key) {
+                        self.record_bet_if_value(
+                            prob,
+                            *odds,
+                            horses,
+                            actual_top,
+                            race_id,
+                            race_date,
+                            results,
+                            |combo, actual| {
+                                let combo_set: BTreeSet<_> = combo.iter().collect();
+                                let actual_set: BTreeSet<_> = actual.iter().collect();
+                                combo_set == actual_set
+                            },
+                        );
+                    }
+                }
+            }
+            BetType::Wide => {
+                let probs = calculate_wide_probs(win_probs, min_prob);
+                for (set, &prob) in &probs {
+                    let horses: Vec<_> = set.iter().cloned().collect();
+                    let mut sorted = horses.clone();
+                    sorted.sort();
+                    let odds_key = format!("{}-{}", sorted[0], sorted[1]);
+                    if let Some(odds) = race_odds.wide_odds.get(&odds_key) {
+                        self.record_bet_if_value(
+                            prob,
+                            *odds,
+                            horses,
+                            actual_top,
+                            race_id,
+                            race_date,
+                            results,
+                            |combo, actual| {
+                                // Wide wins if both horses finish in top 3
+                                let actual_set: BTreeSet<_> = actual.iter().collect();
+                                combo.iter().all(|h| actual_set.contains(h))
+                            },
+                        );
                     }
                 }
             }
         }
+    }
 
-        results
+    /// Record a bet if it has positive expected value.
+    #[allow(clippy::too_many_arguments)]
+    fn record_bet_if_value<F>(
+        &self,
+        prob: f64,
+        odds: f64,
+        combination: Vec<String>,
+        actual_top: &[String],
+        race_id: &str,
+        race_date: NaiveDate,
+        results: &mut BacktestResults,
+        win_check: F,
+    ) where
+        F: FnOnce(&[String], &[String]) -> bool,
+    {
+        let ev = calculate_ev(prob, odds);
+        if ev > self.config.ev_threshold {
+            let won = win_check(&combination, actual_top);
+            let profit = if won {
+                (odds / 100.0) * self.bet_unit - self.bet_unit
+            } else {
+                -self.bet_unit
+            };
+
+            let bet = BetResult {
+                race_id: race_id.to_string(),
+                race_date,
+                bet_type: self.bet_type,
+                combination,
+                actual_positions: actual_top.to_vec(),
+                probability: prob,
+                odds,
+                expected_value: ev,
+                won,
+                profit,
+            };
+
+            results.bets.push(bet);
+            results.num_bets += 1;
+            results.total_bet += self.bet_unit;
+
+            if won {
+                results.num_wins += 1;
+                results.total_return += odds / 100.0 * self.bet_unit;
+            }
+        }
     }
 
     /// Run walk-forward backtest with period splits.
@@ -513,10 +765,9 @@ mod tests {
         results.bets.push(BetResult {
             race_id: "R1".to_string(),
             race_date: NaiveDate::from_ymd_opt(2021, 1, 1).unwrap(),
-            predicted_1st: "1".to_string(),
-            predicted_2nd: "2".to_string(),
-            actual_1st: "1".to_string(),
-            actual_2nd: "2".to_string(),
+            bet_type: BetType::Exacta,
+            combination: vec!["1".to_string(), "2".to_string()],
+            actual_positions: vec!["1".to_string(), "2".to_string()],
             probability: 0.1,
             odds: 1200.0,
             expected_value: 1.2,
@@ -526,10 +777,9 @@ mod tests {
         results.bets.push(BetResult {
             race_id: "R2".to_string(),
             race_date: NaiveDate::from_ymd_opt(2021, 1, 2).unwrap(),
-            predicted_1st: "1".to_string(),
-            predicted_2nd: "2".to_string(),
-            actual_1st: "1".to_string(),
-            actual_2nd: "2".to_string(),
+            bet_type: BetType::Exacta,
+            combination: vec!["1".to_string(), "2".to_string()],
+            actual_positions: vec!["1".to_string(), "2".to_string()],
             probability: 0.1,
             odds: 1200.0,
             expected_value: 1.2,
@@ -539,10 +789,9 @@ mod tests {
         results.bets.push(BetResult {
             race_id: "R3".to_string(),
             race_date: NaiveDate::from_ymd_opt(2021, 1, 3).unwrap(),
-            predicted_1st: "1".to_string(),
-            predicted_2nd: "2".to_string(),
-            actual_1st: "3".to_string(),
-            actual_2nd: "4".to_string(),
+            bet_type: BetType::Exacta,
+            combination: vec!["1".to_string(), "2".to_string()],
+            actual_positions: vec!["3".to_string(), "4".to_string()],
             probability: 0.1,
             odds: 1200.0,
             expected_value: 1.2,
@@ -552,10 +801,9 @@ mod tests {
         results.bets.push(BetResult {
             race_id: "R4".to_string(),
             race_date: NaiveDate::from_ymd_opt(2021, 1, 4).unwrap(),
-            predicted_1st: "1".to_string(),
-            predicted_2nd: "2".to_string(),
-            actual_1st: "1".to_string(),
-            actual_2nd: "2".to_string(),
+            bet_type: BetType::Exacta,
+            combination: vec!["1".to_string(), "2".to_string()],
+            actual_positions: vec!["1".to_string(), "2".to_string()],
             probability: 0.1,
             odds: 1300.0,
             expected_value: 1.3,
@@ -567,5 +815,26 @@ mod tests {
         // Max drawdown = 200 - (-100) = 300
         let dd = results.max_drawdown();
         assert!((dd - 300.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_bet_type_parsing() {
+        assert_eq!(BetType::from_str("exacta"), Some(BetType::Exacta));
+        assert_eq!(BetType::from_str("trifecta"), Some(BetType::Trifecta));
+        assert_eq!(BetType::from_str("quinella"), Some(BetType::Quinella));
+        assert_eq!(BetType::from_str("trio"), Some(BetType::Trio));
+        assert_eq!(BetType::from_str("wide"), Some(BetType::Wide));
+        assert_eq!(BetType::from_str("umatan"), Some(BetType::Exacta));
+        assert_eq!(BetType::from_str("sanrentan"), Some(BetType::Trifecta));
+        assert_eq!(BetType::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_bet_type_min_horses() {
+        assert_eq!(BetType::Exacta.min_horses(), 2);
+        assert_eq!(BetType::Quinella.min_horses(), 2);
+        assert_eq!(BetType::Wide.min_horses(), 2);
+        assert_eq!(BetType::Trifecta.min_horses(), 3);
+        assert_eq!(BetType::Trio.min_horses(), 3);
     }
 }

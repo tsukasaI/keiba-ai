@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Backtest {
             features,
             odds,
+            bet_type,
             model,
             calibration,
             periods,
@@ -56,6 +57,7 @@ async fn main() -> anyhow::Result<()> {
             cli::run_backtest(
                 features,
                 odds,
+                bet_type,
                 model,
                 calibration,
                 periods,
