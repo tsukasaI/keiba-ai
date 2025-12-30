@@ -43,6 +43,7 @@ data/raw/*.zip
 data/processed/*.parquet
 data/processed/*.csv
 data/models/*.pkl
+data/models/*.onnx
 
 # Keep directory structure
 !data/raw/.gitkeep
@@ -73,3 +74,6 @@ htmlcov/
 
 # mypy
 .mypy_cache/
+
+# Rust
+target/
