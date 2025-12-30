@@ -448,3 +448,177 @@ class TrifectaCalibrator:
         instance.fitted = data["fitted"]
         logger.info(f"Trifecta calibrator loaded from: {path}")
         return instance
+
+
+# =============================================================================
+# Quinella Calibrator
+# =============================================================================
+
+class QuinellaCalibrator:
+    """Calibrator specifically for quinella (馬連) predictions."""
+
+    METHODS = {
+        "platt": PlattScaling,
+        "isotonic": IsotonicCalibration,
+        "temperature": TemperatureScaling,
+        "binning": lambda: BinningCalibration(n_bins=15),
+    }
+
+    def __init__(self, method: str = "isotonic"):
+        if method not in self.METHODS:
+            raise ValueError(f"Unknown method: {method}. Valid: {list(self.METHODS.keys())}")
+
+        self.method = method
+        factory = self.METHODS[method]
+        self.calibrator = factory() if callable(factory) else factory
+        self.fitted = False
+
+    def fit_from_backtest(self, predictions: List[Dict]) -> "QuinellaCalibrator":
+        """Fit calibrator from backtest predictions."""
+        probs = np.array([p["predicted_prob"] for p in predictions])
+        labels = np.array([1 if p["won"] else 0 for p in predictions])
+
+        self.calibrator.fit(probs, labels)
+        self.fitted = True
+
+        logger.info(f"Quinella calibrator fitted using {self.method}")
+        logger.info(f"  Training samples: {len(probs)}, Hit rate: {labels.mean():.2%}")
+        return self
+
+    def calibrate(self, probs: np.ndarray) -> np.ndarray:
+        if not self.fitted:
+            raise ValueError("Calibrator not fitted.")
+        return self.calibrator.calibrate(probs)
+
+    def save(self, path: Path) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump({"method": self.method, "calibrator": self.calibrator, "fitted": self.fitted}, f)
+        logger.info(f"Quinella calibrator saved to: {path}")
+
+    @classmethod
+    def load(cls, path: Path) -> "QuinellaCalibrator":
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        instance = cls(method=data["method"])
+        instance.calibrator = data["calibrator"]
+        instance.fitted = data["fitted"]
+        logger.info(f"Quinella calibrator loaded from: {path}")
+        return instance
+
+
+# =============================================================================
+# Trio Calibrator
+# =============================================================================
+
+class TrioCalibrator:
+    """Calibrator specifically for trio (三連複) predictions."""
+
+    METHODS = {
+        "platt": PlattScaling,
+        "isotonic": IsotonicCalibration,
+        "temperature": TemperatureScaling,
+        "binning": lambda: BinningCalibration(n_bins=15),
+    }
+
+    def __init__(self, method: str = "isotonic"):
+        if method not in self.METHODS:
+            raise ValueError(f"Unknown method: {method}. Valid: {list(self.METHODS.keys())}")
+
+        self.method = method
+        factory = self.METHODS[method]
+        self.calibrator = factory() if callable(factory) else factory
+        self.fitted = False
+
+    def fit_from_backtest(self, predictions: List[Dict]) -> "TrioCalibrator":
+        """Fit calibrator from backtest predictions."""
+        probs = np.array([p["predicted_prob"] for p in predictions])
+        labels = np.array([1 if p["won"] else 0 for p in predictions])
+
+        self.calibrator.fit(probs, labels)
+        self.fitted = True
+
+        logger.info(f"Trio calibrator fitted using {self.method}")
+        logger.info(f"  Training samples: {len(probs)}, Hit rate: {labels.mean():.3%}")
+        return self
+
+    def calibrate(self, probs: np.ndarray) -> np.ndarray:
+        if not self.fitted:
+            raise ValueError("Calibrator not fitted.")
+        return self.calibrator.calibrate(probs)
+
+    def save(self, path: Path) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump({"method": self.method, "calibrator": self.calibrator, "fitted": self.fitted}, f)
+        logger.info(f"Trio calibrator saved to: {path}")
+
+    @classmethod
+    def load(cls, path: Path) -> "TrioCalibrator":
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        instance = cls(method=data["method"])
+        instance.calibrator = data["calibrator"]
+        instance.fitted = data["fitted"]
+        logger.info(f"Trio calibrator loaded from: {path}")
+        return instance
+
+
+# =============================================================================
+# Wide Calibrator
+# =============================================================================
+
+class WideCalibrator:
+    """Calibrator specifically for wide (ワイド) predictions."""
+
+    METHODS = {
+        "platt": PlattScaling,
+        "isotonic": IsotonicCalibration,
+        "temperature": TemperatureScaling,
+        "binning": lambda: BinningCalibration(n_bins=15),
+    }
+
+    def __init__(self, method: str = "isotonic"):
+        if method not in self.METHODS:
+            raise ValueError(f"Unknown method: {method}. Valid: {list(self.METHODS.keys())}")
+
+        self.method = method
+        factory = self.METHODS[method]
+        self.calibrator = factory() if callable(factory) else factory
+        self.fitted = False
+
+    def fit_from_backtest(self, predictions: List[Dict]) -> "WideCalibrator":
+        """Fit calibrator from backtest predictions."""
+        probs = np.array([p["predicted_prob"] for p in predictions])
+        labels = np.array([1 if p["won"] else 0 for p in predictions])
+
+        self.calibrator.fit(probs, labels)
+        self.fitted = True
+
+        logger.info(f"Wide calibrator fitted using {self.method}")
+        logger.info(f"  Training samples: {len(probs)}, Hit rate: {labels.mean():.2%}")
+        return self
+
+    def calibrate(self, probs: np.ndarray) -> np.ndarray:
+        if not self.fitted:
+            raise ValueError("Calibrator not fitted.")
+        return self.calibrator.calibrate(probs)
+
+    def save(self, path: Path) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump({"method": self.method, "calibrator": self.calibrator, "fitted": self.fitted}, f)
+        logger.info(f"Wide calibrator saved to: {path}")
+
+    @classmethod
+    def load(cls, path: Path) -> "WideCalibrator":
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        instance = cls(method=data["method"])
+        instance.calibrator = data["calibrator"]
+        instance.fitted = data["fitted"]
+        logger.info(f"Wide calibrator loaded from: {path}")
+        return instance

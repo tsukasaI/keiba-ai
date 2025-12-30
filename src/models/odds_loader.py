@@ -144,6 +144,111 @@ class OddsLoader:
 
         return result
 
+    def get_quinella_results(self) -> pd.DataFrame:
+        """
+        Extract winning quinella (馬連) combinations and payouts.
+
+        Returns:
+            DataFrame with columns:
+            - レースID: Race ID
+            - quinella_horse1: First horse number (smaller)
+            - quinella_horse2: Second horse number (larger)
+            - quinella_odds: Payout odds
+        """
+        if self.odds_df is None:
+            self.load_odds()
+
+        result = pd.DataFrame({
+            "レースID": self.odds_df["レースID"],
+            "quinella_horse1": self.odds_df["馬連1_組合せ1"].astype(float),
+            "quinella_horse2": self.odds_df["馬連1_組合せ2"].astype(float),
+            "quinella_odds": self.odds_df["馬連1_オッズ"].astype(float),
+        })
+
+        result = result.dropna()
+        result["quinella_horse1"] = result["quinella_horse1"].astype(int)
+        result["quinella_horse2"] = result["quinella_horse2"].astype(int)
+
+        logger.info(f"Extracted {len(result):,} quinella results")
+        logger.info(f"Quinella odds range: {result['quinella_odds'].min():.1f} - {result['quinella_odds'].max():.1f}")
+
+        return result
+
+    def get_trio_results(self) -> pd.DataFrame:
+        """
+        Extract winning trio (三連複) combinations and payouts.
+
+        Returns:
+            DataFrame with columns:
+            - レースID: Race ID
+            - trio_horse1/2/3: Horse numbers (sorted)
+            - trio_odds: Payout odds
+        """
+        if self.odds_df is None:
+            self.load_odds()
+
+        result = pd.DataFrame({
+            "レースID": self.odds_df["レースID"],
+            "trio_horse1": self.odds_df["三連複1_組合せ1"].astype(float),
+            "trio_horse2": self.odds_df["三連複1_組合せ2"].astype(float),
+            "trio_horse3": self.odds_df["三連複1_組合せ3"].astype(float),
+            "trio_odds": self.odds_df["三連複1_オッズ"].astype(float),
+        })
+
+        result = result.dropna()
+        result["trio_horse1"] = result["trio_horse1"].astype(int)
+        result["trio_horse2"] = result["trio_horse2"].astype(int)
+        result["trio_horse3"] = result["trio_horse3"].astype(int)
+
+        logger.info(f"Extracted {len(result):,} trio results")
+        logger.info(f"Trio odds range: {result['trio_odds'].min():.1f} - {result['trio_odds'].max():.1f}")
+
+        return result
+
+    def get_wide_results(self) -> pd.DataFrame:
+        """
+        Extract winning wide combinations and payouts.
+        Wide has multiple winners per race (up to 7).
+
+        Returns:
+            DataFrame with columns:
+            - レースID: Race ID
+            - wide_horse1/2: Horse numbers
+            - wide_odds: Payout odds
+            - wide_rank: 1-7 (ranking within race)
+        """
+        if self.odds_df is None:
+            self.load_odds()
+
+        all_wides = []
+
+        for rank in range(1, 8):  # ワイド1 to ワイド7
+            col1 = f"ワイド{rank}_組合せ1"
+            col2 = f"ワイド{rank}_組合せ2"
+            col_odds = f"ワイド{rank}_オッズ"
+
+            if col1 not in self.odds_df.columns:
+                break
+
+            subset = pd.DataFrame({
+                "レースID": self.odds_df["レースID"],
+                "wide_horse1": self.odds_df[col1].astype(float),
+                "wide_horse2": self.odds_df[col2].astype(float),
+                "wide_odds": self.odds_df[col_odds].astype(float),
+                "wide_rank": rank,
+            })
+            subset = subset.dropna()
+            all_wides.append(subset)
+
+        result = pd.concat(all_wides, ignore_index=True)
+        result["wide_horse1"] = result["wide_horse1"].astype(int)
+        result["wide_horse2"] = result["wide_horse2"].astype(int)
+
+        logger.info(f"Extracted {len(result):,} wide results")
+        logger.info(f"Wide odds range: {result['wide_odds'].min():.1f} - {result['wide_odds'].max():.1f}")
+
+        return result
+
     def get_win_odds(self) -> pd.DataFrame:
         """
         Extract win (単勝) odds for each race.
