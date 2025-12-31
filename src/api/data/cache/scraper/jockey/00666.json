@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "00666",
+    "name": "武豊",
+    "total_races": 25466,
+    "wins": 4625,
+    "seconds": 3518,
+    "thirds": 2834,
+    "win_rate": 0.18161470195554857,
+    "place_rate": 0.43104531532239065,
+    "year_races": 575,
+    "year_wins": 72,
+    "year_win_rate": 0.12521739130434784,
+    "year_place_rate": 0.37043478260869567
+  },
+  "cached_at": "2025-12-31T12:28:50.858640Z"
+}

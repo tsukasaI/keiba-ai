@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "05339",
+    "name": "Ｃ．ルメール",
+    "total_races": 9481,
+    "wins": 2114,
+    "seconds": 1520,
+    "thirds": 1108,
+    "win_rate": 0.22297226031009387,
+    "place_rate": 0.5001582111591604,
+    "year_races": 521,
+    "year_wins": 140,
+    "year_win_rate": 0.2687140115163148,
+    "year_place_rate": 0.6103646833013435
+  },
+  "cached_at": "2025-12-31T12:28:31.993267Z"
+}

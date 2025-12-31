@@ -11,6 +11,7 @@ mod exacta;
 mod model;
 mod quinella;
 mod routes;
+mod scraper;
 mod trifecta;
 mod trio;
 mod types;
@@ -68,6 +69,14 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
+        Commands::Live {
+            race_id,
+            bet_type,
+            ev_threshold,
+            output,
+            force,
+            verbose,
+        } => cli::run_live(race_id, bet_type, ev_threshold, output, force, verbose).await,
     }
 }
 

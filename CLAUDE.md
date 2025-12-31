@@ -6,8 +6,8 @@ This is a Japanese horse racing (Keiba) AI prediction system for JRA (Japan Raci
 
 ## Tech Stack
 
-- **Analysis/ML**: Python (use `uv` for package management)
-- **Inference API**: Rust (implemented in Phase 4)
+- **Analysis/ML Training**: Python (use `uv` for package management)
+- **Inference & Live Prediction**: Rust (single binary, no Python dependency)
 - **Data Source**: Kaggle JRA Dataset (2019-2021) + JRA official (future: JRA-VAN paid data)
 
 ## Project Structure
@@ -28,10 +28,10 @@ keiba-ai/
 │   │   ├── scrapers/         # Async scrapers with retry/caching
 │   │   ├── pipeline/         # Feature building for API
 │   │   └── cli.py            # Command-line interface
-│   └── api/                  # Rust inference API
+│   └── api/                  # Rust inference API & CLI
 │       ├── src/
 │       │   ├── main.rs       # Entry point (CLI + server)
-│       │   ├── cli.rs        # CLI commands (serve, predict, backtest)
+│       │   ├── cli.rs        # CLI commands (serve, predict, backtest, live)
 │       │   ├── routes.rs     # API handlers
 │       │   ├── model.rs      # ONNX inference
 │       │   ├── backtest.rs   # Walk-forward backtesting
@@ -43,7 +43,19 @@ keiba-ai/
 │       │   ├── betting.rs    # EV, Kelly criterion
 │       │   ├── calibration.rs # Probability calibration
 │       │   ├── config.rs     # Configuration
-│       │   └── types.rs      # Request/response types
+│       │   ├── types.rs      # Request/response types
+│       │   └── scraper/      # Live race scraper (Rust)
+│       │       ├── mod.rs           # Module definition
+│       │       ├── browser.rs       # chromiumoxide browser automation
+│       │       ├── cache.rs         # File-based cache with TTL
+│       │       ├── rate_limiter.rs  # Token bucket rate limiter
+│       │       ├── feature_builder.rs # 23 ML features
+│       │       └── parsers/         # HTML/JSON parsers
+│       │           ├── race_card.rs # Race card parser
+│       │           ├── horse.rs     # Horse profile parser
+│       │           ├── jockey.rs    # Jockey profile parser
+│       │           ├── trainer.rs   # Trainer profile parser
+│       │           └── odds.rs      # Odds API parser
 │       └── scripts/
 │           └── prepare_backtest_data.py
 ├── tests/                    # Python unit tests (290 tests)
@@ -60,7 +72,8 @@ All phases completed:
 - [x] **Phase 2**: Model Building - LightGBM position probability model
 - [x] **Phase 3**: Backtesting - Walk-forward validation (+19.3% ROI with calibration)
 - [x] **Phase 4**: Rust Inference API - REST API with all 5 bet types
-- [x] **Phase 5**: Live Race Scraper - netkeiba.com integration
+- [x] **Phase 5**: Live Race Scraper - netkeiba.com integration (Python)
+- [x] **Phase 6**: Full Rust Migration - Single binary with `live` command (no Python dependency)
 
 ## Data Source
 
@@ -170,11 +183,15 @@ uv run jupyter notebook notebooks/01_data_exploration.ipynb
 uv run python src/preprocessing/feature_engineering.py
 ```
 
-### Phase 4: Run Rust API
+### Run Rust CLI (Production)
 
 ```bash
 # Build
 cd src/api && cargo build --release
+
+# Live prediction (main use case - single command, no Python needed)
+./target/release/keiba-api live 202506050811
+./target/release/keiba-api live 202506050811 --bet-type trifecta --ev-threshold 1.2 --verbose
 
 # Start API server
 ./target/release/keiba-api serve --port 8080
@@ -182,11 +199,8 @@ cd src/api && cargo build --release
 # Run prediction from JSON file
 ./target/release/keiba-api predict race.json --bet-types all --format table
 
-# Prepare backtest data (from project root)
-PYTHONPATH=. uv run python src/api/scripts/prepare_backtest_data.py
-
 # Run backtest (from project root)
-cargo run --manifest-path src/api/Cargo.toml --release -- backtest \
+./target/release/keiba-api backtest \
   ./data/processed/backtest_features.parquet \
   --odds ./data/processed/exacta_odds.csv \
   --bet-type exacta \
@@ -195,10 +209,44 @@ cargo run --manifest-path src/api/Cargo.toml --release -- backtest \
 
 # CLI help
 ./target/release/keiba-api --help
-./target/release/keiba-api serve --help
-./target/release/keiba-api predict --help
-./target/release/keiba-api backtest --help
+./target/release/keiba-api live --help
 ```
+
+#### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `live` | **Live prediction** - Scrape race data and predict (single command) |
+| `serve` | Start REST API server |
+| `predict` | Run prediction on race JSON file |
+| `backtest` | Run walk-forward backtest on historical data |
+
+#### Live Command Options
+
+```bash
+keiba-api live <RACE_ID> [OPTIONS]
+
+Arguments:
+  <RACE_ID>  Race ID (e.g., 202506050811)
+
+Options:
+  -b, --bet-type <BET_TYPE>      Bet type: exacta, trifecta [default: exacta]
+      --ev-threshold <THRESHOLD>  EV threshold for recommendations [default: 1.0]
+  -o, --output <FILE>            Output file path (JSON)
+  -f, --force                    Force refresh (ignore cache)
+  -v, --verbose                  Show detailed progress
+```
+
+#### Race ID Format
+
+`YYYYRRCCNNDD` where:
+- `YYYY` = Year (e.g., 2025)
+- `RR` = Racecourse code (06=Nakayama, 05=Tokyo, etc.)
+- `CC` = Meeting number
+- `NN` = Day number
+- `DD` = Race number (01-12)
+
+Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記念)
 
 #### API Endpoints
 
@@ -207,14 +255,6 @@ cargo run --manifest-path src/api/Cargo.toml --release -- backtest \
 | GET | `/health` | Health check |
 | GET | `/model/info` | Model information |
 | POST | `/predict` | Race prediction (all 5 bet types) |
-
-#### CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `serve` | Start REST API server |
-| `predict` | Run prediction on race JSON file |
-| `backtest` | Run walk-forward backtest on historical data |
 
 ## Important Notes
 
@@ -245,7 +285,9 @@ cargo run --manifest-path src/api/Cargo.toml --release -- backtest \
 - ✅ Walk-forward backtesting (Python + Rust CLI)
 - ✅ Kelly criterion bet sizing
 - ✅ Expected value filtering
-- ✅ Live race scraper (netkeiba.com)
+- ✅ Live race scraper (netkeiba.com) - **Full Rust implementation**
+- ✅ Single binary CLI (`live` command - no Python dependency)
+- ✅ File-based cache with TTL (7 days for profiles, 24h for race card)
 - ✅ Comprehensive test suite (290 Python + 36 Rust tests)
 
 ## Future Extensions

@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "05386",
+    "name": "戸崎圭太",
+    "total_races": 11554,
+    "wins": 1702,
+    "seconds": 1438,
+    "thirds": 1190,
+    "win_rate": 0.14730829150077895,
+    "place_rate": 0.37476198719058335,
+    "year_races": 805,
+    "year_wins": 132,
+    "year_win_rate": 0.1639751552795031,
+    "year_place_rate": 0.4236024844720497
+  },
+  "cached_at": "2025-12-31T12:29:43.722291Z"
+}

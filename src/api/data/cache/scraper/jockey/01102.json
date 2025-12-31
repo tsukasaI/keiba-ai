@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "01102",
+    "name": "北村友一",
+    "total_races": 11279,
+    "wins": 992,
+    "seconds": 960,
+    "thirds": 949,
+    "win_rate": 0.08795105949108964,
+    "place_rate": 0.25720365280609986,
+    "year_races": 594,
+    "year_wins": 73,
+    "year_win_rate": 0.12289562289562289,
+    "year_place_rate": 0.30303030303030304
+  },
+  "cached_at": "2025-12-31T12:29:26.620354Z"
+}

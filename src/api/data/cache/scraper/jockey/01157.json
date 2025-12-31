@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "01157",
+    "name": "鮫島克駿",
+    "total_races": 7733,
+    "wins": 597,
+    "seconds": 651,
+    "thirds": 648,
+    "win_rate": 0.077201603517393,
+    "place_rate": 0.2451829820250873,
+    "year_races": 787,
+    "year_wins": 67,
+    "year_win_rate": 0.08513341804320203,
+    "year_place_rate": 0.2655654383735705
+  },
+  "cached_at": "2025-12-31T12:29:08.526Z"
+}

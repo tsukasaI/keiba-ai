@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "01160",
+    "name": "荻野極",
+    "total_races": 4636,
+    "wins": 288,
+    "seconds": 267,
+    "thirds": 294,
+    "win_rate": 0.062122519413287315,
+    "place_rate": 0.18313201035375323,
+    "year_races": 635,
+    "year_wins": 62,
+    "year_win_rate": 0.09763779527559055,
+    "year_place_rate": 0.2740157480314961
+  },
+  "cached_at": "2025-12-31T12:27:13.598359Z"
+}

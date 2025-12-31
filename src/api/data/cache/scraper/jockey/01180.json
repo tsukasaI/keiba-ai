@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "01180",
+    "name": "団野大成",
+    "total_races": 4707,
+    "wins": 352,
+    "seconds": 413,
+    "thirds": 376,
+    "win_rate": 0.07478223921818568,
+    "place_rate": 0.242404928829403,
+    "year_races": 727,
+    "year_wins": 68,
+    "year_win_rate": 0.09353507565337002,
+    "year_place_rate": 0.2723521320495186
+  },
+  "cached_at": "2025-12-31T12:27:54.365355Z"
+}

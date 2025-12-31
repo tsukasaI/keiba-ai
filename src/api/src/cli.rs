@@ -98,6 +98,33 @@ pub enum Commands {
         #[arg(short, long, default_value = "table")]
         format: String,
     },
+
+    /// Scrape live race data and run prediction in one command
+    Live {
+        /// Race ID (e.g., 202506050811)
+        #[arg(value_name = "RACE_ID")]
+        race_id: String,
+
+        /// Bet type (exacta, trifecta)
+        #[arg(short, long, default_value = "exacta")]
+        bet_type: String,
+
+        /// EV threshold for betting recommendations
+        #[arg(long, default_value_t = 1.0)]
+        ev_threshold: f64,
+
+        /// Output file path (optional)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Force refresh cache
+        #[arg(long)]
+        force: bool,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 /// Run CLI prediction from file.
@@ -488,4 +515,384 @@ pub async fn run_backtest(
     }
 
     Ok(())
+}
+
+/// Run live race prediction (scrape + predict in one command).
+pub async fn run_live(
+    race_id: String,
+    bet_type: String,
+    ev_threshold: f64,
+    output: Option<PathBuf>,
+    force: bool,
+    verbose: bool,
+) -> anyhow::Result<()> {
+    use crate::scraper::{
+        cache::{Cache, CacheCategory},
+        feature_builder::FeatureBuilder,
+        parsers::{
+            HorseParser, HorseProfile, JockeyParser, JockeyProfile, OddsParser, RaceCardParser,
+            TrainerParser, TrainerProfile,
+        },
+        Browser, RateLimiter,
+    };
+    use std::collections::HashMap;
+
+    eprintln!("=== Keiba-AI Live Prediction ===");
+    eprintln!("Race ID: {}", race_id);
+    eprintln!("Bet type: {}", bet_type);
+    eprintln!("EV threshold: {}", ev_threshold);
+    eprintln!();
+
+    // Initialize components
+    let cache = Cache::default_cache();
+    let rate_limiter = RateLimiter::default_limiter();
+
+    // Step 1: Fetch race card
+    eprintln!("Step 1: Fetching race card...");
+    let race_card_html = if !force {
+        if let Some(cached) = cache.get::<String>(CacheCategory::RaceCard, &race_id) {
+            if verbose {
+                eprintln!("  Using cached race card");
+            }
+            cached
+        } else {
+            let html = fetch_race_card(&race_id, &rate_limiter).await?;
+            let _ = cache.set(CacheCategory::RaceCard, &race_id, &html);
+            html
+        }
+    } else {
+        fetch_race_card(&race_id, &rate_limiter).await?
+    };
+
+    // Parse race card
+    let (race_info, entries) = RaceCardParser::parse(&race_card_html, &race_id)?;
+    eprintln!(
+        "  Race: {} ({} {}m)",
+        race_info.race_name, race_info.surface, race_info.distance
+    );
+    eprintln!("  Entries: {} horses", entries.len());
+
+    if entries.is_empty() {
+        anyhow::bail!("No entries found in race card");
+    }
+
+    // Step 2: Fetch profiles
+    eprintln!("Step 2: Fetching horse/jockey/trainer profiles...");
+
+    let mut horses: HashMap<String, HorseProfile> = HashMap::new();
+    let mut jockeys: HashMap<String, JockeyProfile> = HashMap::new();
+    let mut trainers: HashMap<String, TrainerProfile> = HashMap::new();
+
+    // Launch browser for profile scraping
+    let browser = Browser::launch().await?;
+
+    let total = entries.len();
+    for (idx, entry) in entries.iter().enumerate() {
+        eprint!("\r  [{}/{}] Processing {}...                    ", idx + 1, total, entry.horse_name);
+
+        // Horse profile
+        if !entry.horse_id.is_empty() {
+            let profile = if !force {
+                if let Some(cached) = cache.get::<HorseProfile>(CacheCategory::Horse, &entry.horse_id)
+                {
+                    if verbose { eprint!(" [horse:cache]"); }
+                    cached
+                } else {
+                    if verbose { eprint!(" [horse:fetch]"); }
+                    rate_limiter.acquire().await;
+                    let url = crate::scraper::horse_url(&entry.horse_id);
+                    let html = browser.fetch_page(&url).await?;
+                    let profile = HorseParser::parse(&html, &entry.horse_id)?;
+                    let _ = cache.set(CacheCategory::Horse, &entry.horse_id, &profile);
+                    profile
+                }
+            } else {
+                if verbose { eprint!(" [horse:force]"); }
+                rate_limiter.acquire().await;
+                let url = crate::scraper::horse_url(&entry.horse_id);
+                let html = browser.fetch_page(&url).await?;
+                HorseParser::parse(&html, &entry.horse_id)?
+            };
+            horses.insert(entry.horse_id.clone(), profile);
+        }
+
+        // Jockey profile
+        if !entry.jockey_id.is_empty() && !jockeys.contains_key(&entry.jockey_id) {
+            let profile = if !force {
+                if let Some(cached) =
+                    cache.get::<JockeyProfile>(CacheCategory::Jockey, &entry.jockey_id)
+                {
+                    if verbose { eprint!(" [jockey:cache]"); }
+                    cached
+                } else {
+                    if verbose { eprint!(" [jockey:fetch]"); }
+                    rate_limiter.acquire().await;
+                    let url = crate::scraper::jockey_url(&entry.jockey_id);
+                    let html = browser.fetch_page(&url).await?;
+                    let profile = JockeyParser::parse(&html, &entry.jockey_id)?;
+                    let _ = cache.set(CacheCategory::Jockey, &entry.jockey_id, &profile);
+                    profile
+                }
+            } else {
+                if verbose { eprint!(" [jockey:force]"); }
+                rate_limiter.acquire().await;
+                let url = crate::scraper::jockey_url(&entry.jockey_id);
+                let html = browser.fetch_page(&url).await?;
+                JockeyParser::parse(&html, &entry.jockey_id)?
+            };
+            jockeys.insert(entry.jockey_id.clone(), profile);
+        }
+
+        // Trainer profile
+        if !entry.trainer_id.is_empty() && !trainers.contains_key(&entry.trainer_id) {
+            let profile = if !force {
+                if let Some(cached) =
+                    cache.get::<TrainerProfile>(CacheCategory::Trainer, &entry.trainer_id)
+                {
+                    if verbose { eprint!(" [trainer:cache]"); }
+                    cached
+                } else {
+                    if verbose { eprint!(" [trainer:fetch]"); }
+                    rate_limiter.acquire().await;
+                    let url = crate::scraper::trainer_url(&entry.trainer_id);
+                    let html = browser.fetch_page(&url).await?;
+                    let profile = TrainerParser::parse(&html, &entry.trainer_id)?;
+                    let _ = cache.set(CacheCategory::Trainer, &entry.trainer_id, &profile);
+                    profile
+                }
+            } else {
+                if verbose { eprint!(" [trainer:force]"); }
+                rate_limiter.acquire().await;
+                let url = crate::scraper::trainer_url(&entry.trainer_id);
+                let html = browser.fetch_page(&url).await?;
+                TrainerParser::parse(&html, &entry.trainer_id)?
+            };
+            trainers.insert(entry.trainer_id.clone(), profile);
+        }
+    }
+    eprintln!();
+
+    let _ = browser.close().await;
+    eprintln!("  Profiles loaded: {} horses, {} jockeys, {} trainers",
+        horses.len(), jockeys.len(), trainers.len());
+
+    // Step 3: Fetch odds
+    eprintln!("Step 3: Fetching odds...");
+    let odds_map = fetch_odds(&race_id, &bet_type).await?;
+    eprintln!("  Loaded {} odds combinations", odds_map.len());
+
+    // Step 4: Build features
+    eprintln!("Step 4: Building features...");
+    let mut horse_features = Vec::new();
+    let mut horse_ids = Vec::new();
+
+    for entry in &entries {
+        let horse = horses.get(&entry.horse_id);
+        let jockey = jockeys.get(&entry.jockey_id);
+        let trainer = trainers.get(&entry.trainer_id);
+
+        let features = FeatureBuilder::build(&race_info, entry, horse, jockey, trainer);
+        horse_features.push(features);
+        horse_ids.push(entry.horse_id.clone());
+    }
+
+    // Step 5: Run model inference
+    eprintln!("Step 5: Running model inference...");
+    let config = AppConfig::load()?;
+    let model = create_shared_model(&config.model.path)?;
+
+    let n_horses = horse_features.len();
+    let mut features_array = ndarray::Array2::<f32>::zeros((n_horses, crate::model::NUM_FEATURES));
+
+    for (i, hf) in horse_features.iter().enumerate() {
+        let arr = hf.to_array();
+        for (j, &val) in arr.iter().enumerate() {
+            features_array[[i, j]] = val;
+        }
+    }
+
+    let position_probs = model.predict(features_array)?;
+    let win_probs = extract_win_probs(&position_probs, &horse_ids);
+
+    // Step 6: Calculate probabilities and EV
+    eprintln!("Step 6: Calculating probabilities and expected values...");
+    let min_prob = config.betting.min_probability;
+    let max_combos = config.betting.max_combinations;
+
+    let results = match bet_type.as_str() {
+        "trifecta" => {
+            let probs = calculate_trifecta_probs(&win_probs, min_prob);
+            let top = get_top_trifectas(&probs, max_combos);
+            calculate_ev_trifecta(&top, &odds_map, ev_threshold)
+        }
+        _ => {
+            let probs = calculate_exacta_probs(&win_probs, min_prob);
+            let top = get_top_exactas(&probs, max_combos);
+            calculate_ev_exacta(&top, &odds_map, ev_threshold)
+        }
+    };
+
+    // Step 7: Output results
+    eprintln!();
+    eprintln!("=== Results ===");
+    println!();
+    println!("Race: {} ({})", race_info.race_name, race_id);
+    println!("Bet type: {}", bet_type);
+    println!();
+
+    // Print win probabilities
+    println!("Win Probabilities:");
+    let mut sorted_probs: Vec<_> = win_probs.iter().collect();
+    sorted_probs.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+    for (id, prob) in sorted_probs.iter().take(5) {
+        let name = entries
+            .iter()
+            .find(|e| &e.horse_id == *id)
+            .map(|e| e.horse_name.as_str())
+            .unwrap_or("Unknown");
+        println!("  {:>6}: {:.2}% - {}", id, *prob * 100.0, name);
+    }
+    println!();
+
+    // Print recommended bets
+    println!("Recommended Bets (EV > {}):", ev_threshold);
+    if results.is_empty() {
+        println!("  No bets meet the EV threshold");
+    } else {
+        for (i, (combo, prob, odds, ev)) in results.iter().take(10).enumerate() {
+            println!(
+                "  {:2}. {} - Prob: {:.4}%, Odds: {:.1}, EV: {:.3}",
+                i + 1,
+                combo,
+                prob * 100.0,
+                odds,
+                ev
+            );
+        }
+    }
+
+    // Save to file if requested
+    if let Some(out_path) = output {
+        let output_data = serde_json::json!({
+            "race_id": race_id,
+            "race_name": race_info.race_name,
+            "bet_type": bet_type,
+            "ev_threshold": ev_threshold,
+            "win_probabilities": win_probs,
+            "recommended_bets": results.iter().map(|(c, p, o, e)| {
+                serde_json::json!({
+                    "combination": c,
+                    "probability": p,
+                    "odds": o,
+                    "expected_value": e
+                })
+            }).collect::<Vec<_>>()
+        });
+        std::fs::write(&out_path, serde_json::to_string_pretty(&output_data)?)?;
+        eprintln!();
+        eprintln!("Results saved to: {}", out_path.display());
+    }
+
+    Ok(())
+}
+
+/// Fetch race card HTML
+async fn fetch_race_card(race_id: &str, rate_limiter: &crate::scraper::RateLimiter) -> anyhow::Result<String> {
+    rate_limiter.acquire().await;
+    let browser = crate::scraper::Browser::launch().await?;
+    let url = crate::scraper::race_card_url(race_id);
+    let html = browser.fetch_page(&url).await?;
+    let _ = browser.close().await;
+    Ok(html)
+}
+
+/// Fetch odds from API
+async fn fetch_odds(
+    race_id: &str,
+    bet_type: &str,
+) -> anyhow::Result<std::collections::HashMap<String, f64>> {
+    use crate::scraper::parsers::OddsParser;
+
+    let client = reqwest::Client::new();
+    let url = match bet_type {
+        "trifecta" => crate::scraper::trifecta_odds_url(race_id),
+        _ => crate::scraper::exacta_odds_url(race_id),
+    };
+
+    let response = client.get(&url).send().await?.text().await?;
+
+    let mut odds_map = std::collections::HashMap::new();
+
+    match bet_type {
+        "trifecta" => {
+            let parsed = OddsParser::parse_trifecta(&response)?;
+            for ((first, second, third), odds) in parsed.odds {
+                let key = format!("{:02}-{:02}-{:02}", first, second, third);
+                odds_map.insert(key, odds);
+            }
+        }
+        _ => {
+            let parsed = OddsParser::parse_exacta(&response)?;
+            for ((first, second), odds) in parsed.odds {
+                let key = format!("{:02}-{:02}", first, second);
+                odds_map.insert(key, odds);
+            }
+        }
+    }
+
+    Ok(odds_map)
+}
+
+/// Calculate EV for exacta bets
+fn calculate_ev_exacta(
+    top: &[((String, String), f64)],
+    odds_map: &std::collections::HashMap<String, f64>,
+    ev_threshold: f64,
+) -> Vec<(String, f64, f64, f64)> {
+    let mut results = Vec::new();
+
+    for ((first, second), prob) in top {
+        // Match horse_id to post_position (simplified - assumes ID contains position)
+        // In real implementation, we'd need to map horse_id to post_position
+        let key = format!("{}-{}", first, second);
+
+        // Try to find matching odds
+        if let Some(&odds) = odds_map.get(&key) {
+            let ev = prob * odds;
+            if ev >= ev_threshold {
+                results.push((format!("{}-{}", first, second), *prob, odds, ev));
+            }
+        }
+    }
+
+    results.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap());
+    results
+}
+
+/// Calculate EV for trifecta bets
+fn calculate_ev_trifecta(
+    top: &[((String, String, String), f64)],
+    odds_map: &std::collections::HashMap<String, f64>,
+    ev_threshold: f64,
+) -> Vec<(String, f64, f64, f64)> {
+    let mut results = Vec::new();
+
+    for ((first, second, third), prob) in top {
+        let key = format!("{}-{}-{}", first, second, third);
+
+        if let Some(&odds) = odds_map.get(&key) {
+            let ev = prob * odds;
+            if ev >= ev_threshold {
+                results.push((
+                    format!("{}-{}-{}", first, second, third),
+                    *prob,
+                    odds,
+                    ev,
+                ));
+            }
+        }
+    }
+
+    results.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap());
+    results
 }

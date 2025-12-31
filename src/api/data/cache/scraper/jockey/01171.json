@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "01171",
+    "name": "西村淳也",
+    "total_races": 5180,
+    "wins": 447,
+    "seconds": 475,
+    "thirds": 463,
+    "win_rate": 0.08629343629343629,
+    "place_rate": 0.2673745173745174,
+    "year_races": 460,
+    "year_wins": 49,
+    "year_win_rate": 0.10652173913043478,
+    "year_place_rate": 0.3217391304347826
+  },
+  "cached_at": "2025-12-31T12:31:22.536727Z"
+}

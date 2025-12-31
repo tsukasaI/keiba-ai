@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "01091",
+    "name": "丹内祐次",
+    "total_races": 12617,
+    "wins": 638,
+    "seconds": 851,
+    "thirds": 918,
+    "win_rate": 0.05056669572798605,
+    "place_rate": 0.19077435206467463,
+    "year_races": 1007,
+    "year_wins": 95,
+    "year_win_rate": 0.09433962264150944,
+    "year_place_rate": 0.2969215491559086
+  },
+  "cached_at": "2025-12-31T12:30:36.570797Z"
+}

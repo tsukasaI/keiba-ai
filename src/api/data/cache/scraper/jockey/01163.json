@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "01163",
+    "name": "坂井瑠星",
+    "total_races": 5778,
+    "wins": 626,
+    "seconds": 549,
+    "thirds": 514,
+    "win_rate": 0.10834198684665974,
+    "place_rate": 0.29231568016614745,
+    "year_races": 690,
+    "year_wins": 110,
+    "year_win_rate": 0.15942028985507245,
+    "year_place_rate": 0.3826086956521739
+  },
+  "cached_at": "2025-12-31T12:27:32.226292Z"
+}

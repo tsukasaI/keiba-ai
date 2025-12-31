@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "05473",
+    "name": "Ｃ．デムーロ",
+    "total_races": 1522,
+    "wins": 263,
+    "seconds": 203,
+    "thirds": 196,
+    "win_rate": 0.1727989487516426,
+    "place_rate": 0.43495400788436267,
+    "year_races": 160,
+    "year_wins": 37,
+    "year_win_rate": 0.23125,
+    "year_place_rate": 0.53125
+  },
+  "cached_at": "2025-12-31T12:28:13.200554Z"
+}

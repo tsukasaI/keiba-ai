@@ -1,0 +1,17 @@
+{
+  "data": {
+    "jockey_id": "01096",
+    "name": "大野拓弥",
+    "total_races": 13719,
+    "wins": 752,
+    "seconds": 877,
+    "thirds": 1008,
+    "win_rate": 0.05481449085210292,
+    "place_rate": 0.19221517603323857,
+    "year_races": 533,
+    "year_wins": 35,
+    "year_win_rate": 0.06566604127579738,
+    "year_place_rate": 0.19699812382739212
+  },
+  "cached_at": "2025-12-31T12:31:05.219561Z"
+}
