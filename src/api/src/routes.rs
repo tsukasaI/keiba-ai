@@ -177,38 +177,36 @@ pub async fn predict(
     }
 
     // Calculate Trifecta
-    if bet_types.contains(&"trifecta") || bet_types.contains(&"all") {
-        if n_horses >= 3 {
-            let trifecta_probs = calculate_trifecta_probs(&win_probs, min_prob);
-            let top_trifectas = get_top_trifectas(&trifecta_probs, max_combos);
+    if (bet_types.contains(&"trifecta") || bet_types.contains(&"all")) && n_horses >= 3 {
+        let trifecta_probs = calculate_trifecta_probs(&win_probs, min_prob);
+        let top_trifectas = get_top_trifectas(&trifecta_probs, max_combos);
 
-            predictions.top_trifectas = top_trifectas
-                .iter()
-                .map(|((first, second, third), prob)| {
-                    let odds_key = format!("{}-{}-{}", first, second, third);
-                    let odds = req.trifecta_odds.get(&odds_key).copied();
-                    let (ev, edge) = calculate_ev_edge(*prob, odds);
+        predictions.top_trifectas = top_trifectas
+            .iter()
+            .map(|((first, second, third), prob)| {
+                let odds_key = format!("{}-{}-{}", first, second, third);
+                let odds = req.trifecta_odds.get(&odds_key).copied();
+                let (ev, edge) = calculate_ev_edge(*prob, odds);
 
-                    TrifectaPrediction {
-                        first: first.clone(),
-                        second: second.clone(),
-                        third: third.clone(),
-                        probability: *prob,
-                        odds,
-                        expected_value: ev,
-                        edge,
-                        recommended: ev.map(|e| e > ev_threshold).unwrap_or(false),
-                    }
-                })
-                .collect();
+                TrifectaPrediction {
+                    first: first.clone(),
+                    second: second.clone(),
+                    third: third.clone(),
+                    probability: *prob,
+                    odds,
+                    expected_value: ev,
+                    edge,
+                    recommended: ev.map(|e| e > ev_threshold).unwrap_or(false),
+                }
+            })
+            .collect();
 
-            if !req.trifecta_odds.is_empty() {
-                betting_signals.trifecta = find_value_bets_trifecta(
-                    &trifecta_probs,
-                    &req.trifecta_odds,
-                    &state.config.betting,
-                );
-            }
+        if !req.trifecta_odds.is_empty() {
+            betting_signals.trifecta = find_value_bets_trifecta(
+                &trifecta_probs,
+                &req.trifecta_odds,
+                &state.config.betting,
+            );
         }
     }
 
@@ -246,72 +244,68 @@ pub async fn predict(
     }
 
     // Calculate Trio
-    if bet_types.contains(&"trio") || bet_types.contains(&"all") {
-        if n_horses >= 3 {
-            let trio_probs = calculate_trio_probs(&win_probs, min_prob);
-            let top_trios = get_top_trios(&trio_probs, max_combos);
+    if (bet_types.contains(&"trio") || bet_types.contains(&"all")) && n_horses >= 3 {
+        let trio_probs = calculate_trio_probs(&win_probs, min_prob);
+        let top_trios = get_top_trios(&trio_probs, max_combos);
 
-            predictions.top_trios = top_trios
-                .iter()
-                .map(|(set, prob)| {
-                    let horses: Vec<_> = set.iter().cloned().collect();
-                    let odds_key = format!("{}-{}-{}", horses[0], horses[1], horses[2]);
-                    let odds = req.trio_odds.get(&odds_key).copied();
-                    let (ev, edge) = calculate_ev_edge(*prob, odds);
+        predictions.top_trios = top_trios
+            .iter()
+            .map(|(set, prob)| {
+                let horses: Vec<_> = set.iter().cloned().collect();
+                let odds_key = format!("{}-{}-{}", horses[0], horses[1], horses[2]);
+                let odds = req.trio_odds.get(&odds_key).copied();
+                let (ev, edge) = calculate_ev_edge(*prob, odds);
 
-                    TrioPrediction {
-                        horses: (horses[0].clone(), horses[1].clone(), horses[2].clone()),
-                        probability: *prob,
-                        odds,
-                        expected_value: ev,
-                        edge,
-                        recommended: ev.map(|e| e > ev_threshold).unwrap_or(false),
-                    }
-                })
-                .collect();
+                TrioPrediction {
+                    horses: (horses[0].clone(), horses[1].clone(), horses[2].clone()),
+                    probability: *prob,
+                    odds,
+                    expected_value: ev,
+                    edge,
+                    recommended: ev.map(|e| e > ev_threshold).unwrap_or(false),
+                }
+            })
+            .collect();
 
-            if !req.trio_odds.is_empty() {
-                betting_signals.trio = find_value_bets_trio(
-                    &trio_probs,
-                    &req.trio_odds,
-                    &state.config.betting,
-                );
-            }
+        if !req.trio_odds.is_empty() {
+            betting_signals.trio = find_value_bets_trio(
+                &trio_probs,
+                &req.trio_odds,
+                &state.config.betting,
+            );
         }
     }
 
     // Calculate Wide
-    if bet_types.contains(&"wide") || bet_types.contains(&"all") {
-        if n_horses >= 3 {
-            let wide_probs = calculate_wide_probs(&win_probs, min_prob);
-            let top_wides = get_top_wides(&wide_probs, max_combos);
+    if (bet_types.contains(&"wide") || bet_types.contains(&"all")) && n_horses >= 3 {
+        let wide_probs = calculate_wide_probs(&win_probs, min_prob);
+        let top_wides = get_top_wides(&wide_probs, max_combos);
 
-            predictions.top_wides = top_wides
-                .iter()
-                .map(|(set, prob)| {
-                    let horses: Vec<_> = set.iter().cloned().collect();
-                    let odds_key = format!("{}-{}", horses[0], horses[1]);
-                    let odds = req.wide_odds.get(&odds_key).copied();
-                    let (ev, edge) = calculate_ev_edge(*prob, odds);
+        predictions.top_wides = top_wides
+            .iter()
+            .map(|(set, prob)| {
+                let horses: Vec<_> = set.iter().cloned().collect();
+                let odds_key = format!("{}-{}", horses[0], horses[1]);
+                let odds = req.wide_odds.get(&odds_key).copied();
+                let (ev, edge) = calculate_ev_edge(*prob, odds);
 
-                    WidePrediction {
-                        horses: (horses[0].clone(), horses[1].clone()),
-                        probability: *prob,
-                        odds,
-                        expected_value: ev,
-                        edge,
-                        recommended: ev.map(|e| e > ev_threshold).unwrap_or(false),
-                    }
-                })
-                .collect();
+                WidePrediction {
+                    horses: (horses[0].clone(), horses[1].clone()),
+                    probability: *prob,
+                    odds,
+                    expected_value: ev,
+                    edge,
+                    recommended: ev.map(|e| e > ev_threshold).unwrap_or(false),
+                }
+            })
+            .collect();
 
-            if !req.wide_odds.is_empty() {
-                betting_signals.wide = find_value_bets_wide(
-                    &wide_probs,
-                    &req.wide_odds,
-                    &state.config.betting,
-                );
-            }
+        if !req.wide_odds.is_empty() {
+            betting_signals.wide = find_value_bets_wide(
+                &wide_probs,
+                &req.wide_odds,
+                &state.config.betting,
+            );
         }
     }
 

@@ -94,6 +94,7 @@ pub struct FeatureBuilder;
 
 impl FeatureBuilder {
     /// Build features for a horse
+    #[allow(clippy::field_reassign_with_default)]
     pub fn build(
         race: &RaceInfo,
         entry: &RaceEntry,

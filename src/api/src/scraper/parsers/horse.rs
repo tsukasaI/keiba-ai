@@ -100,6 +100,11 @@ impl HorseParser {
             }
         }
 
+        // Compile regex patterns once before the loop
+        let date_re = Regex::new(r"(\d{4})年(\d{1,2})月(\d{1,2})日").unwrap();
+        let sex_re = Regex::new(r"([牡牝セ])").unwrap();
+        let color_re = Regex::new(r"[牡牝セ]\s*(.+)").unwrap();
+
         // Profile table
         if let Ok(selector) = Selector::parse(".db_prof_table td, .profile_table td") {
             let cells: Vec<_> = document.select(&selector).collect();
@@ -107,7 +112,6 @@ impl HorseParser {
                 let text = cell.text().collect::<String>();
 
                 // Birth date
-                let date_re = Regex::new(r"(\d{4})年(\d{1,2})月(\d{1,2})日").unwrap();
                 if let Some(caps) = date_re.captures(&text) {
                     let year: i32 = caps[1].parse().unwrap_or(2000);
                     let month: u32 = caps[2].parse().unwrap_or(1);
@@ -120,13 +124,11 @@ impl HorseParser {
                 }
 
                 // Sex
-                let sex_re = Regex::new(r"([牡牝セ])").unwrap();
                 if let Some(caps) = sex_re.captures(&text) {
                     profile.sex = caps[1].to_string();
                 }
 
                 // Coat color (毛色)
-                let color_re = Regex::new(r"[牡牝セ]\s*(.+)").unwrap();
                 if let Some(caps) = color_re.captures(&text) {
                     profile.coat_color = caps[1].trim().to_string();
                 }
@@ -144,7 +146,7 @@ impl HorseParser {
                     let links: Vec<_> = table.select(&a_selector).collect();
 
                     // Typically: sire, dam, broodmare_sire in specific positions
-                    if links.len() >= 1 {
+                    if !links.is_empty() {
                         profile.sire = links[0].text().collect::<String>().trim().to_string();
                     }
                     if links.len() >= 3 {
@@ -228,11 +230,17 @@ impl HorseParser {
             return None;
         }
 
+        // Compile regex patterns once
+        let date_re = Regex::new(r"(\d{4})/(\d{2})/(\d{2})").unwrap();
+        let surface_re = Regex::new(r"(芝|ダ)\s*(\d+)").unwrap();
+        let position_re = Regex::new(r"(\d+)").unwrap();
+        let field_size_re = Regex::new(r"/(\d+)").unwrap();
+        let weight_re = Regex::new(r"(\d+(?:\.\d+)?)").unwrap();
+
         let mut race = PastRace::default();
 
         // Date (cell 0)
         let date_text = cells[0].text().collect::<String>();
-        let date_re = Regex::new(r"(\d{4})/(\d{2})/(\d{2})").unwrap();
         if let Some(caps) = date_re.captures(&date_text) {
             race.date = format!("{}-{}-{}", &caps[1], &caps[2], &caps[3]);
         }
@@ -250,8 +258,7 @@ impl HorseParser {
         for &idx in &[6, 14] {
             if let Some(cell) = cells.get(idx) {
                 let text = cell.text().collect::<String>();
-                let re = Regex::new(r"(芝|ダ)\s*(\d+)").unwrap();
-                if let Some(caps) = re.captures(&text) {
+                if let Some(caps) = surface_re.captures(&text) {
                     race.surface = if &caps[1] == "芝" {
                         "turf".to_string()
                     } else {
@@ -278,8 +285,7 @@ impl HorseParser {
         for &idx in &[11, 5] {
             if let Some(cell) = cells.get(idx) {
                 let text = cell.text().collect::<String>();
-                let re = Regex::new(r"(\d+)").unwrap();
-                if let Some(caps) = re.captures(&text) {
+                if let Some(caps) = position_re.captures(&text) {
                     race.position = caps[1].parse().unwrap_or(0);
                     if race.position > 0 {
                         break;
@@ -291,8 +297,7 @@ impl HorseParser {
         // Field size from position cell (e.g., "1/18")
         if let Some(cell) = cells.get(6) {
             let text = cell.text().collect::<String>();
-            let re = Regex::new(r"/(\d+)").unwrap();
-            if let Some(caps) = re.captures(&text) {
+            if let Some(caps) = field_size_re.captures(&text) {
                 race.field_size = caps[1].parse().unwrap_or(0);
             }
         }
@@ -300,8 +305,7 @@ impl HorseParser {
         // Weight carried (cell 13)
         if let Some(cell) = cells.get(13) {
             let text = cell.text().collect::<String>();
-            let re = Regex::new(r"(\d+(?:\.\d+)?)").unwrap();
-            if let Some(caps) = re.captures(&text) {
+            if let Some(caps) = weight_re.captures(&text) {
                 race.weight_carried = caps[1].parse().unwrap_or(0.0);
             }
         }

@@ -142,18 +142,13 @@ impl BinningCalibration {
 }
 
 /// Calibrator enum for runtime selection.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Calibrator {
     Temperature(TemperatureScaling),
     Binning(BinningCalibration),
+    #[default]
     None,
-}
-
-impl Default for Calibrator {
-    fn default() -> Self {
-        Calibrator::None
-    }
 }
 
 impl Calibrator {

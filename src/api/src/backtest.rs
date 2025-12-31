@@ -228,7 +228,7 @@ impl OddsLookup {
                     entry.exacta_odds.insert(key, odds);
                 }
                 BetType::Trifecta => {
-                    if let Some(ref third_col) = thirds {
+                    if let Some(third_col) = &thirds {
                         let third = third_col.i64().ok().and_then(|c| c.get(i)).unwrap_or(0);
                         let key = format!("{}-{}-{}", first, second, third);
                         entry.trifecta_odds.insert(key, odds);
@@ -242,7 +242,7 @@ impl OddsLookup {
                     entry.quinella_odds.insert(key, odds);
                 }
                 BetType::Trio => {
-                    if let Some(ref third_col) = thirds {
+                    if let Some(third_col) = &thirds {
                         let third = third_col.i64().ok().and_then(|c| c.get(i)).unwrap_or(0);
                         let mut horses = [first, second, third];
                         horses.sort();
@@ -299,7 +299,7 @@ pub fn load_race_data<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<RaceData>> 
     // Extract features
     let mut feature_cols: Vec<&Column> = Vec::new();
     for name in FEATURE_NAMES.iter() {
-        if let Ok(col) = df.column(*name) {
+        if let Ok(col) = df.column(name) {
             feature_cols.push(col);
         }
     }

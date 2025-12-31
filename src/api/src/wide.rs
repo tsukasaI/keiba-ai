@@ -53,11 +53,10 @@ pub fn calculate_wide_probs(
             let mut wide_prob = 0.0;
 
             // Sum over all possible third horses
-            for k in 0..horses.len() {
+            for (k, c) in horses.iter().enumerate() {
                 if k == i || k == j {
                     continue;
                 }
-                let c = &horses[k];
 
                 // Sum all 6 permutations of (A, B, C)
                 wide_prob += calculate_single_trifecta(win_probs, a, b, c);

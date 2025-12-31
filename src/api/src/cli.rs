@@ -202,25 +202,23 @@ pub async fn run_predict(
             .collect();
     }
 
-    if should_calc_all || bet_types.contains(&"trifecta".to_string()) {
-        if n_horses >= 3 {
-            let trifecta_probs = calculate_trifecta_probs(&win_probs, min_prob);
-            let top_trifectas = get_top_trifectas(&trifecta_probs, max_combos);
+    if (should_calc_all || bet_types.contains(&"trifecta".to_string())) && n_horses >= 3 {
+        let trifecta_probs = calculate_trifecta_probs(&win_probs, min_prob);
+        let top_trifectas = get_top_trifectas(&trifecta_probs, max_combos);
 
-            predictions.top_trifectas = top_trifectas
-                .iter()
-                .map(|((first, second, third), prob)| crate::types::TrifectaPrediction {
-                    first: first.clone(),
-                    second: second.clone(),
-                    third: third.clone(),
-                    probability: *prob,
-                    odds: None,
-                    expected_value: None,
-                    edge: None,
-                    recommended: false,
-                })
-                .collect();
-        }
+        predictions.top_trifectas = top_trifectas
+            .iter()
+            .map(|((first, second, third), prob)| crate::types::TrifectaPrediction {
+                first: first.clone(),
+                second: second.clone(),
+                third: third.clone(),
+                probability: *prob,
+                odds: None,
+                expected_value: None,
+                edge: None,
+                recommended: false,
+            })
+            .collect();
     }
 
     if should_calc_all || bet_types.contains(&"quinella".to_string()) {
@@ -243,48 +241,44 @@ pub async fn run_predict(
             .collect();
     }
 
-    if should_calc_all || bet_types.contains(&"trio".to_string()) {
-        if n_horses >= 3 {
-            let trio_probs = calculate_trio_probs(&win_probs, min_prob);
-            let top_trios = get_top_trios(&trio_probs, max_combos);
+    if (should_calc_all || bet_types.contains(&"trio".to_string())) && n_horses >= 3 {
+        let trio_probs = calculate_trio_probs(&win_probs, min_prob);
+        let top_trios = get_top_trios(&trio_probs, max_combos);
 
-            predictions.top_trios = top_trios
-                .iter()
-                .map(|(set, prob)| {
-                    let horses: Vec<_> = set.iter().cloned().collect();
-                    crate::types::TrioPrediction {
-                        horses: (horses[0].clone(), horses[1].clone(), horses[2].clone()),
-                        probability: *prob,
-                        odds: None,
-                        expected_value: None,
-                        edge: None,
-                        recommended: false,
-                    }
-                })
-                .collect();
-        }
+        predictions.top_trios = top_trios
+            .iter()
+            .map(|(set, prob)| {
+                let horses: Vec<_> = set.iter().cloned().collect();
+                crate::types::TrioPrediction {
+                    horses: (horses[0].clone(), horses[1].clone(), horses[2].clone()),
+                    probability: *prob,
+                    odds: None,
+                    expected_value: None,
+                    edge: None,
+                    recommended: false,
+                }
+            })
+            .collect();
     }
 
-    if should_calc_all || bet_types.contains(&"wide".to_string()) {
-        if n_horses >= 3 {
-            let wide_probs = calculate_wide_probs(&win_probs, min_prob);
-            let top_wides = get_top_wides(&wide_probs, max_combos);
+    if (should_calc_all || bet_types.contains(&"wide".to_string())) && n_horses >= 3 {
+        let wide_probs = calculate_wide_probs(&win_probs, min_prob);
+        let top_wides = get_top_wides(&wide_probs, max_combos);
 
-            predictions.top_wides = top_wides
-                .iter()
-                .map(|(set, prob)| {
-                    let horses: Vec<_> = set.iter().cloned().collect();
-                    crate::types::WidePrediction {
-                        horses: (horses[0].clone(), horses[1].clone()),
-                        probability: *prob,
-                        odds: None,
-                        expected_value: None,
-                        edge: None,
-                        recommended: false,
-                    }
-                })
-                .collect();
-        }
+        predictions.top_wides = top_wides
+            .iter()
+            .map(|(set, prob)| {
+                let horses: Vec<_> = set.iter().cloned().collect();
+                crate::types::WidePrediction {
+                    horses: (horses[0].clone(), horses[1].clone()),
+                    probability: *prob,
+                    odds: None,
+                    expected_value: None,
+                    edge: None,
+                    recommended: false,
+                }
+            })
+            .collect();
     }
 
     // Build response
@@ -404,6 +398,7 @@ fn print_table(response: &PredictResponse) {
 }
 
 /// Run backtest on historical data.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_backtest(
     features_path: PathBuf,
     odds_path: PathBuf,
@@ -509,7 +504,7 @@ pub async fn run_backtest(
             });
             println!("{}", serde_json::to_string_pretty(&json_output)?);
         }
-        "table" | _ => {
+        _ => {
             print_backtest_table(&results);
         }
     }
