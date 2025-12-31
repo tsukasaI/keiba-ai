@@ -24,6 +24,7 @@ keiba-ai/
 │   │   ├── pipeline/         # Feature building for API
 │   │   └── cli.py            # Command-line interface
 │   └── api/                  # Rust inference API
+├── tests/                    # Python unit tests
 ├── notebooks/                # Jupyter exploration
 ├── requirements.txt
 ├── CLAUDE.md                 # Claude Code instructions
@@ -190,6 +191,56 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 - 20 requests/minute with 1.5-3s random delays
 - Uses stealth browser to avoid detection
 - JSON cache with 24h TTL (configurable)
+
+## Testing
+
+### Python Tests
+
+```bash
+# Run all Python tests
+PYTHONPATH=. uv run pytest tests/ -v
+
+# Run specific test file
+PYTHONPATH=. uv run pytest tests/test_backtester.py -v
+```
+
+**Test Coverage (200 tests)**
+
+| Module | Tests | Description |
+|--------|-------|-------------|
+| `position_model.py` | 29 | Model training, prediction, save/load |
+| `backtester.py` | 27 | Backtest logic, stratification, segment filtering |
+| `odds_loader.py` | 21 | Odds loading, all bet types, lookups |
+| `trainer.py` | 20 | CV training, time splits, evaluation |
+| `data_loader.py` | 18 | Data loading, filtering, missing values |
+| `calibrator.py` | 15 | Probability calibration methods |
+| `evaluator.py` | 14 | Metrics calculation, exacta accuracy |
+| `expected_value.py` | 12 | EV calculation, Kelly criterion |
+| `exacta_calculator.py` | 10 | Exacta probability calculation |
+| `types.py` | 10 | Data types, BacktestResults |
+| `scraper/*` | 24 | Cache, config, feature builder, rate limiter |
+
+### Rust Tests (36 tests)
+
+```bash
+# Run Rust tests
+cd src/api && cargo test
+
+# Run with verbose output
+cd src/api && cargo test -- --nocapture
+```
+
+| Module | Tests | Description |
+|--------|-------|-------------|
+| `calibration.rs` | 10 | Temperature scaling, binning, JSON loading |
+| `betting.rs` | 5 | EV calculation, Kelly criterion |
+| `backtest.rs` | 4 | Bet types, period metrics, drawdown |
+| `exacta.rs` | 2 | Exacta probability calculation |
+| `trifecta.rs` | 3 | Trifecta probability calculation |
+| `quinella.rs` | 3 | Quinella probability calculation |
+| `trio.rs` | 4 | Trio probability calculation |
+| `wide.rs` | 4 | Wide probability calculation |
+| `model.rs` | 1 | Feature names |
 
 ## Future Extensions
 
