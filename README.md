@@ -204,7 +204,7 @@ PYTHONPATH=. uv run pytest tests/ -v
 PYTHONPATH=. uv run pytest tests/test_backtester.py -v
 ```
 
-**Test Coverage (200 tests)**
+**Test Coverage (290 tests)**
 
 | Module | Tests | Description |
 |--------|-------|-------------|
@@ -218,7 +218,10 @@ PYTHONPATH=. uv run pytest tests/test_backtester.py -v
 | `expected_value.py` | 12 | EV calculation, Kelly criterion |
 | `exacta_calculator.py` | 10 | Exacta probability calculation |
 | `types.py` | 10 | Data types, BacktestResults |
-| `scraper/*` | 24 | Cache, config, feature builder, rate limiter |
+| `scraper/data_classes` | 43 | HorseData, JockeyData, TrainerData properties |
+| `scraper/parsers` | 30 | HTML parsing for horse, jockey, trainer, race card |
+| `scraper/scrapers` | 17 | Cache behavior, retry logic, scrape_many |
+| `scraper/infra` | 24 | Cache, config, feature builder, rate limiter |
 
 ### Rust Tests (36 tests)
 
