@@ -17,53 +17,50 @@ keiba-ai/
 ├── config/settings.py        # Configuration
 ├── data/
 │   ├── raw/                  # Raw data (Kaggle CSV files)
-│   └── processed/            # Processed/feature-engineered data
+│   ├── processed/            # Processed/feature-engineered data
+│   └── cache/                # Scraper cache (auto-created)
 ├── src/
 │   ├── data_collection/      # Data download scripts
 │   ├── preprocessing/        # Feature engineering
-│   ├── models/               # ML models (Phase 2)
+│   ├── models/               # ML models, backtesting, calibration
 │   ├── scraper/              # Live race scraper (netkeiba.com)
-│   └── api/                  # Rust inference API (Phase 4)
+│   │   ├── parsers/          # HTML parsers (horse, jockey, trainer, race_card)
+│   │   ├── scrapers/         # Async scrapers with retry/caching
+│   │   ├── pipeline/         # Feature building for API
+│   │   └── cli.py            # Command-line interface
+│   └── api/                  # Rust inference API
 │       ├── src/
 │       │   ├── main.rs       # Entry point (CLI + server)
 │       │   ├── cli.rs        # CLI commands (serve, predict, backtest)
 │       │   ├── routes.rs     # API handlers
 │       │   ├── model.rs      # ONNX inference
 │       │   ├── backtest.rs   # Walk-forward backtesting
-│       │   ├── exacta.rs     # Exacta calculator
-│       │   ├── trifecta.rs   # Trifecta calculator
-│       │   ├── quinella.rs   # Quinella calculator
-│       │   ├── trio.rs       # Trio calculator
-│       │   ├── wide.rs       # Wide calculator
+│       │   ├── exacta.rs     # Exacta probability (Harville formula)
+│       │   ├── trifecta.rs   # Trifecta probability
+│       │   ├── quinella.rs   # Quinella probability
+│       │   ├── trio.rs       # Trio probability
+│       │   ├── wide.rs       # Wide probability
 │       │   ├── betting.rs    # EV, Kelly criterion
 │       │   ├── calibration.rs # Probability calibration
 │       │   ├── config.rs     # Configuration
 │       │   └── types.rs      # Request/response types
 │       └── scripts/
-│           └── prepare_backtest_data.py  # Data preparation
+│           └── prepare_backtest_data.py
+├── tests/                    # Python unit tests (290 tests)
+│   ├── scraper/              # Scraper tests
+│   └── test_*.py             # Model/backtesting tests
 └── notebooks/                # Jupyter exploration
 ```
 
 ## Development Phases
 
-### Phase 1: Data Collection & Exploration
-1. Download Kaggle JRA dataset (2019-2021, ~3 years)
-2. Explore data structure and available features
-3. Design feature engineering pipeline
-4. Understand horse racing domain specifics
+All phases completed:
 
-### Phase 2: Model Building
-1. Predict probability distribution of finishing positions for each horse
-2. Calculate Exacta probabilities
-3. Implement expected value calculation
-
-### Phase 3: Backtesting
-1. Validate strategy on historical data (time-series split)
-2. Calculate ROI for "expected value > 1.0" betting
-
-### Phase 4: Inference API & UI
-1. Build REST API in Rust
-2. Simple dashboard for race day predictions
+- [x] **Phase 1**: Data Collection & Exploration - Kaggle dataset (2019-2021)
+- [x] **Phase 2**: Model Building - LightGBM position probability model
+- [x] **Phase 3**: Backtesting - Walk-forward validation (+19.3% ROI with calibration)
+- [x] **Phase 4**: Rust Inference API - REST API with all 5 bet types
+- [x] **Phase 5**: Live Race Scraper - netkeiba.com integration
 
 ## Data Source
 
@@ -245,12 +242,15 @@ cargo run --manifest-path src/api/Cargo.toml --release -- backtest \
 
 - ✅ All 5 bet types (Exacta, Trifecta, Quinella, Trio, Wide)
 - ✅ Probability calibration (temperature scaling, binning)
-- ✅ Walk-forward backtesting CLI
+- ✅ Walk-forward backtesting (Python + Rust CLI)
 - ✅ Kelly criterion bet sizing
 - ✅ Expected value filtering
+- ✅ Live race scraper (netkeiba.com)
+- ✅ Comprehensive test suite (290 Python + 36 Rust tests)
 
 ## Future Extensions
 
+- Calibration integration in Rust API `/predict` endpoint
 - NAR (Regional racing) support
 - JRA-VAN integration for real-time predictions with pre-race odds
 - Production deployment (Docker, monitoring)

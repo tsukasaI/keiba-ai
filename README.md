@@ -247,6 +247,7 @@ cd src/api && cargo test -- --nocapture
 
 ## Future Extensions
 
+- Calibration integration in Rust API `/predict` endpoint
 - Regional racing (NAR) support
-- JRA-VAN integration (real-time predictions)
-- Probability calibration integration in API
+- JRA-VAN integration (real-time predictions with pre-race odds)
+- Production deployment (Docker, monitoring)
