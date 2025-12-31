@@ -195,7 +195,7 @@ def main():
     # Verify probabilities sum reasonably
     total_prob = sum(trifecta_probs.values())
     print(f"\nTotal trifecta probability sum: {total_prob:.4f}")
-    print(f"Expected (for 10 horses): ~1.0")
+    print("Expected (for 10 horses): ~1.0")
 
 
 if __name__ == "__main__":

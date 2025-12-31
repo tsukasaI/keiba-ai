@@ -6,7 +6,6 @@ Generate comprehensive backtest summary reports.
 
 import logging
 from typing import Dict, List, Optional
-from pathlib import Path
 from datetime import datetime
 
 import numpy as np
@@ -302,7 +301,6 @@ def run_full_backtest_report(
 
 def _run_calibration_analysis(results: BacktestResults) -> Dict:
     """Run calibration analysis on backtest results."""
-    import numpy as np
 
     if not results.bets:
         return {}
@@ -320,24 +318,24 @@ def _run_calibration_analysis(results: BacktestResults) -> Dict:
     print("=" * 60)
     print("CALIBRATION ANALYSIS REPORT")
     print("=" * 60)
-    print(f"\n--- Overall Metrics ---")
+    print("\n--- Overall Metrics ---")
     print(f"Brier Score:                    {brier:.4f}")
     print(f"Expected Calibration Error:     {ece:.4f}")
 
-    print(f"\n--- Calibration by Probability Bin ---")
+    print("\n--- Calibration by Probability Bin ---")
     print(f"{'Bin':>12} {'Samples':>10} {'Predicted':>12} {'Actual':>10} {'Error':>10}")
     print("-" * 56)
     for b in bins:
         print(f"{b.bin_start:.2%}-{b.bin_end:.2%}{b.num_samples:>10}"
               f"{b.avg_predicted_prob:>12.2%}{b.actual_hit_rate:>10.2%}{b.confidence_error:>+10.2%}")
 
-    print(f"\n--- Calibration Issues ---")
+    print("\n--- Calibration Issues ---")
     for category, message in issues.items():
         print(f"{category}: {message}")
 
     # EV tier analysis
     tiers = {"high_ev": (1.5, float("inf")), "medium_ev": (1.2, 1.5), "low_ev": (1.0, 1.2)}
-    print(f"\n--- Calibration by EV Tier ---")
+    print("\n--- Calibration by EV Tier ---")
     print(f"{'Tier':>12} {'Bets':>8} {'Predicted':>12} {'Actual':>10} {'Error':>10}")
     print("-" * 54)
 

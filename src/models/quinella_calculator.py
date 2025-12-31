@@ -11,7 +11,6 @@ from typing import Dict, FrozenSet, List, Optional, Tuple
 
 import numpy as np
 
-from .config import BETTING_CONFIG
 
 logging.basicConfig(
     level=logging.INFO,

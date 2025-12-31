@@ -14,7 +14,6 @@ import sys
 from pathlib import Path
 import logging
 from typing import Optional
-from datetime import datetime, timedelta
 
 import pandas as pd
 import numpy as np
@@ -25,7 +24,6 @@ from config.settings import (
     PROCESSED_DATA_DIR,
     DATA_CONFIG,
     MODEL_CONFIG,
-    FEATURE_CATEGORIES,
 )
 
 logging.basicConfig(
@@ -364,7 +362,6 @@ class FeatureEngineer:
         self.main_df['_position'] = pd.to_numeric(self.main_df[position_col], errors='coerce')
 
         # Sort by horse and date
-        date_col = self.col_map.get('date')
         sort_cols = [horse_col]
         if '_date' in self.main_df.columns:
             sort_cols.append('_date')

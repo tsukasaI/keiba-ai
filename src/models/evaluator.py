@@ -6,8 +6,7 @@ Note: For ROI simulation with real exacta odds, use Backtester instead.
 """
 
 import logging
-from typing import Dict, List, Optional
-from pathlib import Path
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -98,7 +97,6 @@ class ModelEvaluator:
             Dict of exacta-related metrics
         """
         race_groups = test_df.groupby(RACE_ID_COL)
-        n_races = len(race_groups)
 
         correct_exactas = 0
         correct_win = 0

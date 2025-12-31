@@ -8,12 +8,10 @@ import logging
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from .calibrator import TrifectaCalibrator
 from .config import (
-    BACKTEST_CONFIG,
     BETTING_CONFIG,
     DATE_COL,
     FEATURES,

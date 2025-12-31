@@ -5,12 +5,10 @@ Analyze EV characteristics of winning bets from backtest results.
 """
 
 import logging
-from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import numpy as np
-import pandas as pd
 
 from .types import BacktestResults, BetResult
 
@@ -187,8 +185,7 @@ class EVAnalyzer:
         random_prob = 1 / (n_horses_avg * (n_horses_avg - 1))
 
         # Typical JRA takeout is ~25% for exacta
-        # So break-even random odds = 1 / random_prob * 0.75
-        breakeven_odds = 1 / random_prob * 0.75
+        # Break-even random odds = 1 / random_prob * 0.75
 
         our_hit_rate = results.hit_rate / 100
         our_roi = results.roi / 100

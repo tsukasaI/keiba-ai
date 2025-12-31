@@ -5,10 +5,8 @@ Walkforward backtesting for quinella (馬連) betting with actual odds.
 """
 
 import logging
-from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from .calibrator import ExactaCalibrator

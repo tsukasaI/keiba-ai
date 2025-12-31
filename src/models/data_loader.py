@@ -8,7 +8,6 @@ import logging
 from pathlib import Path
 from typing import Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from .config import (
@@ -16,7 +15,6 @@ from .config import (
     TARGET_COL,
     RACE_ID_COL,
     DATE_COL,
-    HORSE_NAME_COL,
     MISSING_DEFAULTS,
     TRAINING_CONFIG,
 )
@@ -226,7 +224,7 @@ def main():
     print(f"Test set: {X_test.shape}")
     print(f"\nFeatures used: {len(loader.feature_cols)}")
     print(f"Feature list: {loader.feature_cols}")
-    print(f"\nTarget distribution (train):")
+    print("\nTarget distribution (train):")
     print(y_train.value_counts().sort_index().head(10))
 
 

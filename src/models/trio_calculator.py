@@ -11,7 +11,6 @@ from typing import Dict, FrozenSet, List, Optional, Tuple
 
 import numpy as np
 
-from .config import BETTING_CONFIG
 
 logging.basicConfig(
     level=logging.INFO,
@@ -173,7 +172,7 @@ def main():
     trio_probs = calculator.calculate_trio_probs(position_probs)
 
     print(f"\nTotal trio combinations: {len(trio_probs)}")
-    print(f"Expected C(10,3) = 120")
+    print("Expected C(10,3) = 120")
 
     print("\nTop 10 Trio Combinations:")
     top_trios = calculator.get_top_trios(trio_probs, n=10)

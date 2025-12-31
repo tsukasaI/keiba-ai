@@ -6,9 +6,8 @@ Walkforward backtesting for wide (ワイド) betting with actual odds.
 
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from .config import (

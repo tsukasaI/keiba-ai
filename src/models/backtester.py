@@ -8,7 +8,6 @@ import logging
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from .config import (
@@ -16,7 +15,6 @@ from .config import (
     BETTING_CONFIG,
     DATE_COL,
     FEATURES,
-    HORSE_NAME_COL,
     PROFITABLE_SEGMENTS,
     RACE_ID_COL,
     TARGET_COL,

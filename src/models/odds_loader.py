@@ -6,10 +6,9 @@ Load actual exacta (馬単) and trifecta (三連単) odds from CSV for backtesti
 
 import logging
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, Optional
 
 import pandas as pd
-import numpy as np
 
 logging.basicConfig(
     level=logging.INFO,
@@ -359,7 +358,7 @@ class OddsLoader:
 def main():
     """Test odds loading."""
     loader = OddsLoader()
-    odds_df = loader.load_odds(start_year=2019, end_year=2021)
+    loader.load_odds(start_year=2019, end_year=2021)
 
     print("\n" + "=" * 60)
     print("ODDS DATA SUMMARY")
@@ -368,7 +367,7 @@ def main():
     exacta = loader.get_exacta_results()
 
     print(f"\nTotal races with exacta data: {len(exacta):,}")
-    print(f"\nExacta odds distribution:")
+    print("\nExacta odds distribution:")
     print(f"  Min:    {exacta['exacta_odds'].min():.1f}")
     print(f"  25%:    {exacta['exacta_odds'].quantile(0.25):.1f}")
     print(f"  Median: {exacta['exacta_odds'].median():.1f}")

@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import lightgbm as lgb
 
-from .config import LGBM_PARAMS, TRAINING_CONFIG, RACE_ID_COL, HORSE_NAME_COL
+from .config import LGBM_PARAMS, TRAINING_CONFIG
 
 logging.basicConfig(
     level=logging.INFO,

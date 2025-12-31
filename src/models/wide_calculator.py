@@ -11,7 +11,6 @@ from typing import Dict, FrozenSet, List, Optional, Tuple
 
 import numpy as np
 
-from .config import BETTING_CONFIG
 
 logging.basicConfig(
     level=logging.INFO,
@@ -184,7 +183,7 @@ def main():
     wide_probs = calculator.calculate_wide_probs(position_probs)
 
     print(f"\nTotal wide combinations: {len(wide_probs)}")
-    print(f"Expected C(10,2) = 45")
+    print("Expected C(10,2) = 45")
 
     print("\nTop 10 Wide Combinations:")
     top_wides = calculator.get_top_wides(wide_probs, n=10)

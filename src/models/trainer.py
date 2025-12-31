@@ -6,13 +6,12 @@ Training pipeline with TimeSeriesSplit for proper validation.
 
 import logging
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict
-from datetime import datetime
+from typing import List, Tuple, Dict
 
 import numpy as np
 import pandas as pd
 
-from .config import TRAINING_CONFIG, DATE_COL, RACE_ID_COL
+from .config import TRAINING_CONFIG, DATE_COL
 from .data_loader import RaceDataLoader
 from .position_model import PositionProbabilityModel
 
@@ -219,7 +218,6 @@ class ModelTrainer:
 
 def main():
     """Train model with cross-validation."""
-    from .data_loader import RaceDataLoader
 
     # Load data
     loader = RaceDataLoader()

@@ -5,7 +5,7 @@ Calculate expected value and identify value bets.
 """
 
 import logging
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from dataclasses import dataclass
 
 from .config import BETTING_CONFIG
@@ -239,7 +239,7 @@ def main():
 
     # Summary
     summary = calculator.summarize_value_bets(value_bets)
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Average EV: {summary['avg_ev']:.2f}")
     print(f"  Max EV: {summary['max_ev']:.2f}")
     print(f"  Average Edge: {summary['avg_edge']:.1%}")
