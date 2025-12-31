@@ -18,6 +18,7 @@ from .config import ScraperConfig
 from .pipeline.api_formatter import ApiFormatter
 from .pipeline.exacta_betting import ExactaBettingPipeline
 from .pipeline.trifecta_betting import TrifectaBettingPipeline
+from .pipeline.result_formatter import ResultFormatter
 from .rate_limiter import RateLimiter
 from .scrapers.race_card_scraper import RaceCardScraper
 from .scrapers.horse_scraper import HorseScraper
@@ -289,9 +290,14 @@ async def cmd_exacta_bets(args):
         print(f"Error: {e}")
         sys.exit(1)
 
-    # Display results
+    # Display results with formatter
+    result_formatter = ResultFormatter()
     print()
-    print(betting_result.summary())
+    print(result_formatter.format_betting_result(
+        result=betting_result,
+        bet_type="exacta",
+        ev_threshold=getattr(args, 'ev_threshold', 1.0),
+    ))
 
     # Output JSON if requested
     if args.output:
@@ -367,9 +373,14 @@ async def cmd_trifecta_bets(args):
         print(f"Error: {e}")
         sys.exit(1)
 
-    # Display results
+    # Display results with formatter
+    result_formatter = ResultFormatter()
     print()
-    print(betting_result.summary())
+    print(result_formatter.format_betting_result(
+        result=betting_result,
+        bet_type="trifecta",
+        ev_threshold=getattr(args, 'ev_threshold', 1.0),
+    ))
 
     # Output JSON if requested
     if args.output:
@@ -487,6 +498,10 @@ def main():
     exacta_parser.add_argument(
         "--visible", action="store_true", help="Show browser window"
     )
+    exacta_parser.add_argument(
+        "--ev-threshold", type=float, default=1.0,
+        help="Minimum expected value threshold (default: 1.0)"
+    )
 
     # trifecta-bets command
     trifecta_parser = subparsers.add_parser(
@@ -508,6 +523,10 @@ def main():
     )
     trifecta_parser.add_argument(
         "--visible", action="store_true", help="Show browser window"
+    )
+    trifecta_parser.add_argument(
+        "--ev-threshold", type=float, default=1.0,
+        help="Minimum expected value threshold (default: 1.0)"
     )
 
     args = parser.parse_args()

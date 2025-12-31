@@ -49,6 +49,11 @@ from .calibrator import (
     WideCalibrator,
     compare_calibration_methods,
 )
+from .export_calibration import (
+    export_calibrator_to_json,
+    create_temperature_calibrator,
+    create_binning_calibrator,
+)
 from .trainer import ModelTrainer
 from .evaluator import ModelEvaluator
 from .backtester import Backtester
@@ -103,6 +108,9 @@ __all__ = [
     "TrifectaCalibrator",
     "WideCalibrator",
     "compare_calibration_methods",
+    "export_calibrator_to_json",
+    "create_temperature_calibrator",
+    "create_binning_calibrator",
     # Training & Evaluation
     "ModelTrainer",
     "ModelEvaluator",

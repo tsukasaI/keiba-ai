@@ -15,7 +15,7 @@ import pickle
 from pathlib import Path
 from typing import Any, Dict, Union
 
-from calibrator import (
+from .calibrator import (
     BinningCalibration,
     ExactaCalibrator,
     QuinellaCalibrator,
