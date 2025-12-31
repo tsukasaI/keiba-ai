@@ -18,11 +18,6 @@ keiba-ai/
 │   │   └── download_kaggle.py
 │   ├── preprocessing/        # Feature engineering
 │   ├── models/               # Prediction models
-│   ├── scraper/              # Live race scraper (Python, legacy)
-│   │   ├── parsers/          # HTML parsers (race_card, horse, jockey, trainer)
-│   │   ├── scrapers/         # Async scrapers with rate limiting
-│   │   ├── pipeline/         # Feature building for API
-│   │   └── cli.py            # Command-line interface
 │   └── api/                  # Rust inference API & CLI (includes scraper)
 ├── tests/                    # Python unit tests
 ├── notebooks/                # Jupyter exploration
@@ -74,7 +69,7 @@ uv run python src/data_collection/download_kaggle.py
 - [x] Phase 2: Model Building
 - [x] Phase 3: Backtesting (+19.3% ROI with calibration)
 - [x] Phase 4: Rust Inference API
-- [x] Phase 5: Live Race Scraper (netkeiba.com) - Python
+- [x] Phase 5: Live Race Scraper (netkeiba.com)
 - [x] Phase 6: Full Rust Migration (single binary, no Python dependency)
 
 ## Features
@@ -139,10 +134,10 @@ cd src/api && cargo build --release
 
 ```bash
 # Start API server
-./target/release/keiba-api serve --port 8080
+./src/api/target/release/keiba-api serve --port 8080
 
 # Run prediction from JSON file
-./target/release/keiba-api predict race.json --bet-types all --format table
+./src/api/target/release/keiba-api predict race.json --bet-types all --format table
 ```
 
 ### API Endpoints
@@ -179,20 +174,6 @@ The `live` command scrapes race data and runs prediction in a single command:
 - File-based cache with TTL (7 days for profiles, 24h for race card)
 - Rate limiting (60 req/min, 0.5-1.0s delay)
 
-### Python Version (Legacy)
-
-```bash
-# Install Playwright browsers (one-time setup)
-playwright install chromium
-
-# Scrape a single race
-uv run python -m src.scraper.cli scrape-race 202506050811
-
-# Scrape and call prediction API
-uv run python -m src.scraper.cli predict-race 202506050811 \
-    --api-url http://localhost:8080
-```
-
 ### Race ID Format
 
 `YYYYRRCCNNDD` where:
@@ -225,7 +206,7 @@ PYTHONPATH=. uv run pytest tests/ -v
 PYTHONPATH=. uv run pytest tests/test_backtester.py -v
 ```
 
-**Test Coverage (290 tests)**
+**Test Coverage (176 tests)**
 
 | Module | Tests | Description |
 |--------|-------|-------------|
@@ -239,12 +220,8 @@ PYTHONPATH=. uv run pytest tests/test_backtester.py -v
 | `expected_value.py` | 12 | EV calculation, Kelly criterion |
 | `exacta_calculator.py` | 10 | Exacta probability calculation |
 | `types.py` | 10 | Data types, BacktestResults |
-| `scraper/data_classes` | 43 | HorseData, JockeyData, TrainerData properties |
-| `scraper/parsers` | 30 | HTML parsing for horse, jockey, trainer, race card |
-| `scraper/scrapers` | 17 | Cache behavior, retry logic, scrape_many |
-| `scraper/infra` | 24 | Cache, config, feature builder, rate limiter |
 
-### Rust Tests (36 tests)
+### Rust Tests (42 tests)
 
 ```bash
 # Run Rust tests

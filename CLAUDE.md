@@ -23,11 +23,6 @@ keiba-ai/
 │   ├── data_collection/      # Data download scripts
 │   ├── preprocessing/        # Feature engineering
 │   ├── models/               # ML models, backtesting, calibration
-│   ├── scraper/              # Live race scraper (netkeiba.com)
-│   │   ├── parsers/          # HTML parsers (horse, jockey, trainer, race_card)
-│   │   ├── scrapers/         # Async scrapers with retry/caching
-│   │   ├── pipeline/         # Feature building for API
-│   │   └── cli.py            # Command-line interface
 │   └── api/                  # Rust inference API & CLI
 │       ├── src/
 │       │   ├── main.rs       # Entry point (CLI + server)
@@ -58,8 +53,7 @@ keiba-ai/
 │       │           └── odds.rs      # Odds API parser
 │       └── scripts/
 │           └── prepare_backtest_data.py
-├── tests/                    # Python unit tests (290 tests)
-│   ├── scraper/              # Scraper tests
+├── tests/                    # Python unit tests (176 tests)
 │   └── test_*.py             # Model/backtesting tests
 └── notebooks/                # Jupyter exploration
 ```
@@ -72,7 +66,7 @@ All phases completed:
 - [x] **Phase 2**: Model Building - LightGBM position probability model
 - [x] **Phase 3**: Backtesting - Walk-forward validation (+19.3% ROI with calibration)
 - [x] **Phase 4**: Rust Inference API - REST API with all 5 bet types
-- [x] **Phase 5**: Live Race Scraper - netkeiba.com integration (Python)
+- [x] **Phase 5**: Live Race Scraper - netkeiba.com integration
 - [x] **Phase 6**: Full Rust Migration - Single binary with `live` command (no Python dependency)
 
 ## Data Source
@@ -288,7 +282,7 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 - ✅ Live race scraper (netkeiba.com) - **Full Rust implementation**
 - ✅ Single binary CLI (`live` command - no Python dependency)
 - ✅ File-based cache with TTL (7 days for profiles, 24h for race card)
-- ✅ Comprehensive test suite (290 Python + 36 Rust tests)
+- ✅ Comprehensive test suite (176 Python + 42 Rust tests)
 
 ## Future Extensions
 

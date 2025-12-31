@@ -57,9 +57,6 @@ from .export_calibration import (
 from .trainer import ModelTrainer
 from .evaluator import ModelEvaluator
 from .backtester import Backtester
-from .quinella_backtester import QuinellaBacktester
-from .trio_backtester import TrioBacktester
-from .wide_backtester import WideBacktester
 from .backtest_report import BacktestReporter, run_full_backtest_report
 
 __all__ = [
@@ -116,9 +113,6 @@ __all__ = [
     "ModelEvaluator",
     # Backtesting
     "Backtester",
-    "QuinellaBacktester",
-    "TrioBacktester",
-    "WideBacktester",
     "BacktestReporter",
     "run_full_backtest_report",
 ]

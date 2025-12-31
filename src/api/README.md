@@ -42,6 +42,36 @@ cargo run -- predict race.json -b exacta,trifecta -f table
 cargo run -- predict race.json -m /path/to/model.onnx
 ```
 
+### Live Prediction
+
+Scrape race data from netkeiba.com and run prediction in a single command:
+
+```bash
+# Basic usage
+cargo run -- live 202506050811
+
+# With options
+cargo run -- live 202506050811 \
+  --bet-type trifecta \
+  --ev-threshold 1.2 \
+  --verbose
+
+# Force refresh (ignore cache)
+cargo run -- live 202506050811 --force
+
+# Save output to file
+cargo run -- live 202506050811 --output result.json
+```
+
+**Options:**
+- `-b, --bet-type <TYPE>` - Bet type: exacta, trifecta (default: exacta)
+- `--ev-threshold <THRESHOLD>` - EV threshold for recommendations (default: 1.0)
+- `-o, --output <FILE>` - Output file path (JSON)
+- `-f, --force` - Force refresh (ignore cache)
+- `-v, --verbose` - Show detailed progress
+
+**Requirements:** Google Chrome installed (for headless browser automation)
+
 ### Run Backtest
 
 ```bash
@@ -321,7 +351,14 @@ src/api/
 │   ├── trifecta.rs      # Trifecta probability calculation
 │   ├── quinella.rs      # Quinella probability calculation
 │   ├── trio.rs          # Trio probability calculation
-│   └── wide.rs          # Wide probability calculation
+│   ├── wide.rs          # Wide probability calculation
+│   └── scraper/         # Live race scraper (Rust)
+│       ├── mod.rs           # Module definition
+│       ├── browser.rs       # Chrome DevTools Protocol
+│       ├── cache.rs         # File-based cache with TTL
+│       ├── rate_limiter.rs  # Token bucket rate limiter
+│       ├── feature_builder.rs # 23 ML features
+│       └── parsers/         # HTML/JSON parsers
 ├── scripts/
 │   └── prepare_backtest_data.py  # Data preparation script
 ├── Cargo.toml
