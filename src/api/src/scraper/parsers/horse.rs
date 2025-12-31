@@ -1,7 +1,7 @@
 //! Horse profile parser for netkeiba.com.
 
 use anyhow::Result;
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{Datelike, Utc};
 use regex::Regex;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -103,7 +103,7 @@ impl HorseParser {
         // Profile table
         if let Ok(selector) = Selector::parse(".db_prof_table td, .profile_table td") {
             let cells: Vec<_> = document.select(&selector).collect();
-            for (i, cell) in cells.iter().enumerate() {
+            for cell in cells.iter() {
                 let text = cell.text().collect::<String>();
 
                 // Birth date

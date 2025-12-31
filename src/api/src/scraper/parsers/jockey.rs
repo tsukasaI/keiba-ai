@@ -109,7 +109,7 @@ impl JockeyParser {
                 let wins = Self::parse_number(&cells[2].text().collect::<String>());
                 let seconds = Self::parse_number(&cells[3].text().collect::<String>());
                 let thirds = Self::parse_number(&cells[4].text().collect::<String>());
-                let fourths_plus = Self::parse_number(&cells[5].text().collect::<String>());
+                let _fourths_plus = Self::parse_number(&cells[5].text().collect::<String>());
                 let total = Self::parse_number(&cells[6].text().collect::<String>());
 
                 if year_text.contains("累計") || year_text.contains("通算") {

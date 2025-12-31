@@ -15,32 +15,20 @@ struct CacheEntry<T> {
 /// Cache categories with different TTLs
 #[derive(Debug, Clone, Copy)]
 pub enum CacheCategory {
-    RaceCard,   // 24 hours
-    Horse,      // 7 days
-    Jockey,     // 7 days
-    Trainer,    // 7 days
-    ExactaOdds, // 5 minutes
-    TrifectaOdds, // 5 minutes
+    RaceCard, // 24 hours
+    Horse,    // 7 days
+    Jockey,   // 7 days
+    Trainer,  // 7 days
 }
 
 impl CacheCategory {
-    /// Get TTL in hours for this category
-    pub fn ttl_hours(&self) -> i64 {
-        match self {
-            CacheCategory::RaceCard => 24,
-            CacheCategory::Horse => 24 * 7,
-            CacheCategory::Jockey => 24 * 7,
-            CacheCategory::Trainer => 24 * 7,
-            CacheCategory::ExactaOdds => 0, // 5 minutes (handled specially)
-            CacheCategory::TrifectaOdds => 0,
-        }
-    }
-
     /// Get TTL duration
     pub fn ttl(&self) -> Duration {
         match self {
-            CacheCategory::ExactaOdds | CacheCategory::TrifectaOdds => Duration::minutes(5),
-            _ => Duration::hours(self.ttl_hours()),
+            CacheCategory::RaceCard => Duration::hours(24),
+            CacheCategory::Horse => Duration::hours(24 * 7),
+            CacheCategory::Jockey => Duration::hours(24 * 7),
+            CacheCategory::Trainer => Duration::hours(24 * 7),
         }
     }
 
@@ -51,8 +39,6 @@ impl CacheCategory {
             CacheCategory::Horse => "horse",
             CacheCategory::Jockey => "jockey",
             CacheCategory::Trainer => "trainer",
-            CacheCategory::ExactaOdds => "exacta_odds",
-            CacheCategory::TrifectaOdds => "trifecta_odds",
         }
     }
 }
@@ -124,6 +110,7 @@ impl Cache {
     }
 
     /// Clear cache for a category
+    #[allow(dead_code)]
     pub fn clear(&self, category: CacheCategory) -> Result<()> {
         let dir = self.category_dir(category);
         if dir.exists() {
@@ -133,6 +120,7 @@ impl Cache {
     }
 
     /// Clear all cache
+    #[allow(dead_code)]
     pub fn clear_all(&self) -> Result<()> {
         if self.base_dir.exists() {
             std::fs::remove_dir_all(&self.base_dir)?;

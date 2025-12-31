@@ -9,8 +9,6 @@ pub mod parsers;
 pub mod rate_limiter;
 
 pub use browser::Browser;
-pub use cache::Cache;
-pub use feature_builder::FeatureBuilder;
 pub use rate_limiter::RateLimiter;
 
 /// Base URLs for netkeiba.com

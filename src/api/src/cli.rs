@@ -530,7 +530,7 @@ pub async fn run_live(
         cache::{Cache, CacheCategory},
         feature_builder::FeatureBuilder,
         parsers::{
-            HorseParser, HorseProfile, JockeyParser, JockeyProfile, OddsParser, RaceCardParser,
+            HorseParser, HorseProfile, JockeyParser, JockeyProfile, RaceCardParser,
             TrainerParser, TrainerProfile,
         },
         Browser, RateLimiter,
