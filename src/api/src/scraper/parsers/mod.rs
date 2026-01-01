@@ -6,7 +6,7 @@ pub mod odds;
 pub mod race_card;
 pub mod trainer;
 
-pub use horse::{HorseParser, HorseProfile};
+pub use horse::{AptitudeFeatures, HorseParser, HorseProfile, PastRace};
 pub use jockey::{JockeyParser, JockeyProfile};
 pub use odds::OddsParser;
 pub use race_card::{RaceCardParser, RaceEntry, RaceInfo};

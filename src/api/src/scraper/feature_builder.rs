@@ -242,27 +242,47 @@ impl FeatureBuilder {
             .map(|o| (o as f32).ln())
             .unwrap_or(Defaults::ODDS_LOG);
 
-        // Running style features (defaults - would need race history to compute properly)
-        features.early_position = Defaults::EARLY_POSITION;
-        features.late_position = Defaults::LATE_POSITION;
-        features.position_change = Defaults::POSITION_CHANGE;
+        // Running style features from horse history
+        let (early, late, change) = horse
+            .map(|h| h.running_style_features())
+            .unwrap_or((Defaults::EARLY_POSITION, Defaults::LATE_POSITION, Defaults::POSITION_CHANGE));
+        features.early_position = early;
+        features.late_position = late;
+        features.position_change = change;
 
-        // Aptitude features (defaults - would need race history to compute properly)
-        features.aptitude_sprint = Defaults::APTITUDE;
-        features.aptitude_mile = Defaults::APTITUDE;
-        features.aptitude_intermediate = Defaults::APTITUDE;
-        features.aptitude_long = Defaults::APTITUDE;
-        features.aptitude_turf = Defaults::APTITUDE;
-        features.aptitude_dirt = Defaults::APTITUDE;
-        features.aptitude_course = Defaults::APTITUDE;
+        // Aptitude features from horse history
+        if let Some(h) = horse {
+            let aptitude = h.aptitude_features(&race.racecourse);
+            features.aptitude_sprint = aptitude.sprint;
+            features.aptitude_mile = aptitude.mile;
+            features.aptitude_intermediate = aptitude.intermediate;
+            features.aptitude_long = aptitude.long;
+            features.aptitude_turf = aptitude.turf;
+            features.aptitude_dirt = aptitude.dirt;
+            features.aptitude_course = aptitude.course;
+        } else {
+            features.aptitude_sprint = Defaults::APTITUDE;
+            features.aptitude_mile = Defaults::APTITUDE;
+            features.aptitude_intermediate = Defaults::APTITUDE;
+            features.aptitude_long = Defaults::APTITUDE;
+            features.aptitude_turf = Defaults::APTITUDE;
+            features.aptitude_dirt = Defaults::APTITUDE;
+            features.aptitude_course = Defaults::APTITUDE;
+        }
 
-        // Pace features (上り3ハロン - would need race history to compute properly)
-        features.last_3f_avg = Defaults::LAST_3F_AVG;
-        features.last_3f_best = Defaults::LAST_3F_BEST;
-        features.last_3f_last = Defaults::LAST_3F_LAST;
+        // Pace features from horse history (上り3ハロン)
+        let (avg, best, last) = horse
+            .map(|h| h.pace_features())
+            .unwrap_or((Defaults::LAST_3F_AVG, Defaults::LAST_3F_BEST, Defaults::LAST_3F_LAST));
+        features.last_3f_avg = avg;
+        features.last_3f_best = best;
+        features.last_3f_last = last;
 
         // Race classification features
-        features.weight_change_kg = Defaults::WEIGHT_CHANGE;
+        features.weight_change_kg = entry
+            .weight_change
+            .map(|w| w as f32)
+            .unwrap_or(Defaults::WEIGHT_CHANGE);
         features.is_graded_race = Self::encode_grade(&race.grade);
         features.grade_level = Self::encode_grade_level(&race.grade);
 
