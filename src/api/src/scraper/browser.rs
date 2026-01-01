@@ -57,8 +57,8 @@ impl Browser {
             }
         });
 
-        // Wait for browser to be ready
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        // Wait for browser to be ready (reduced from 2s for performance)
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         Ok(Self { browser, handle })
     }
@@ -87,8 +87,8 @@ impl Browser {
 
     /// Wait for page to finish loading
     async fn wait_for_load(_page: &Page) -> Result<()> {
-        // Wait for network idle or timeout
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        // Wait for network idle or timeout (reduced from 2s for performance)
+        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
         Ok(())
     }
 

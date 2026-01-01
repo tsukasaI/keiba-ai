@@ -599,6 +599,10 @@ pub async fn run_live(
     let cache = Cache::default_cache();
     let rate_limiter = RateLimiter::default_limiter();
 
+    // Launch browser once and reuse for all fetches (performance optimization)
+    eprintln!("Launching browser...");
+    let browser = Browser::launch().await?;
+
     // Step 1: Fetch race card
     eprintln!("Step 1: Fetching race card...");
     let race_card_html = if !force {
@@ -608,12 +612,12 @@ pub async fn run_live(
             }
             cached
         } else {
-            let html = fetch_race_card(&race_id, &rate_limiter).await?;
+            let html = fetch_race_card_with_browser(&race_id, &browser, &rate_limiter).await?;
             let _ = cache.set(CacheCategory::RaceCard, &race_id, &html);
             html
         }
     } else {
-        fetch_race_card(&race_id, &rate_limiter).await?
+        fetch_race_card_with_browser(&race_id, &browser, &rate_limiter).await?
     };
 
     // Parse race card
@@ -625,18 +629,16 @@ pub async fn run_live(
     eprintln!("  Entries: {} horses", entries.len());
 
     if entries.is_empty() {
+        let _ = browser.close().await;
         anyhow::bail!("No entries found in race card");
     }
 
-    // Step 2: Fetch profiles
+    // Step 2: Fetch profiles (reusing browser)
     eprintln!("Step 2: Fetching horse/jockey/trainer profiles...");
 
     let mut horses: HashMap<String, HorseProfile> = HashMap::new();
     let mut jockeys: HashMap<String, JockeyProfile> = HashMap::new();
     let mut trainers: HashMap<String, TrainerProfile> = HashMap::new();
-
-    // Launch browser for profile scraping
-    let browser = Browser::launch().await?;
 
     let total = entries.len();
     for (idx, entry) in entries.iter().enumerate() {
@@ -859,14 +861,15 @@ pub async fn run_live(
     Ok(())
 }
 
-/// Fetch race card HTML
-async fn fetch_race_card(race_id: &str, rate_limiter: &crate::scraper::RateLimiter) -> anyhow::Result<String> {
+/// Fetch race card HTML using provided browser instance
+async fn fetch_race_card_with_browser(
+    race_id: &str,
+    browser: &crate::scraper::Browser,
+    rate_limiter: &crate::scraper::RateLimiter,
+) -> anyhow::Result<String> {
     rate_limiter.acquire().await;
-    let browser = crate::scraper::Browser::launch().await?;
     let url = crate::scraper::race_card_url(race_id);
-    let html = browser.fetch_page(&url).await?;
-    let _ = browser.close().await;
-    Ok(html)
+    browser.fetch_page(&url).await
 }
 
 /// Fetch odds from API
