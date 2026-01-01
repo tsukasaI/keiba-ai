@@ -17,15 +17,19 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import List, Dict, Tuple
 
 import numpy as np
+import pandas as pd
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models.backtester import Backtester
-from src.models.config import FEATURES, TARGET_COL
+from src.models.calibrator import TemperatureScaling, BinningCalibration
+from src.models.config import FEATURES, TARGET_COL, DATE_COL, RACE_ID_COL
 from src.models.data_loader import RaceDataLoader
+from src.models.exacta_calculator import ExactaCalculator
 from src.models.position_model import PositionProbabilityModel
 from src.models.trainer import ModelTrainer
 from src.preprocessing.feature_engineering import FeatureEngineer
@@ -127,8 +131,14 @@ def run_training() -> bool:
     return True
 
 
-def run_validation() -> dict:
-    """Step 3: Walk-forward backtest with calibration."""
+def run_validation() -> Tuple[dict, List[Dict]]:
+    """Step 3: Walk-forward backtest with calibration.
+
+    Returns:
+        Tuple of (results_dict, calibration_predictions)
+        - results_dict: ROI, hit rate, etc.
+        - calibration_predictions: List of {predicted_prob, won} for fitting calibrator
+    """
     step_banner(3, "VALIDATION (WALK-FORWARD BACKTEST)")
 
     start = datetime.now()
@@ -151,6 +161,12 @@ def run_validation() -> dict:
         test_months=3,
         calibration_months=3,
     )
+
+    # Collect calibration data from all bets
+    calibration_predictions = [
+        {"predicted_prob": bet.predicted_prob, "won": bet.won}
+        for bet in results.bets
+    ]
 
     # Calculate summary
     total_bets = len(results.bets)
@@ -190,11 +206,57 @@ ROI: {roi:.2f}%
         "total_bets": total_bets,
         "total_wins": total_wins,
         "profit": profit,
-    }
+    }, calibration_predictions
 
 
-def run_export() -> bool:
-    """Step 4: Export ONNX model and calibration."""
+def fit_calibration(predictions: List[Dict], method: str = "temperature") -> dict:
+    """Fit calibration from validation predictions.
+
+    Args:
+        predictions: List of {predicted_prob, won} from validation
+        method: 'temperature' or 'binning'
+
+    Returns:
+        Calibration config dict for JSON export
+    """
+    if not predictions:
+        logger.warning("No predictions for calibration, using default")
+        return {"type": "temperature", "temperature": 1.0}
+
+    probs = np.array([p["predicted_prob"] for p in predictions])
+    labels = np.array([1 if p["won"] else 0 for p in predictions])
+
+    logger.info(f"Fitting {method} calibration on {len(probs):,} predictions")
+    logger.info(f"  Hit rate: {labels.mean():.2%}")
+    logger.info(f"  Avg predicted prob: {probs.mean():.4f}")
+
+    if method == "temperature":
+        calibrator = TemperatureScaling()
+        calibrator.fit(probs, labels)
+        return {
+            "type": "temperature",
+            "temperature": float(calibrator.temperature),
+        }
+    elif method == "binning":
+        calibrator = BinningCalibration(n_bins=15)
+        calibrator.fit(probs, labels)
+        return {
+            "type": "binning",
+            "n_bins": int(calibrator.n_bins),
+            "bin_edges": [float(x) for x in calibrator.bin_edges],
+            "bin_values": [float(x) for x in calibrator.bin_values],
+        }
+    else:
+        raise ValueError(f"Unknown calibration method: {method}")
+
+
+def run_export(calibration_predictions: List[Dict] = None) -> bool:
+    """Step 4: Export ONNX model and calibration.
+
+    Args:
+        calibration_predictions: Optional list of {predicted_prob, won} for fitting calibrator.
+                                 If None, uses default temperature=1.0.
+    """
     step_banner(4, "EXPORT (ONNX + CALIBRATION)")
 
     start = datetime.now()
@@ -270,12 +332,12 @@ def run_export() -> bool:
     onnx.checker.check_model(onnx_model)
     logger.info("ONNX model verification passed")
 
-    # Create default calibration config (temperature scaling)
-    # In production, this should be fitted from validation data
-    calibration_config = {
-        "type": "temperature",
-        "temperature": 1.0,  # Default no-op calibration
-    }
+    # Fit and export calibration
+    if calibration_predictions:
+        calibration_config = fit_calibration(calibration_predictions, method="temperature")
+    else:
+        logger.warning("No calibration predictions provided, using default temperature=1.0")
+        calibration_config = {"type": "temperature", "temperature": 1.0}
 
     with open(CALIBRATION_PATH, "w") as f:
         json.dump(calibration_config, f, indent=2)
@@ -290,7 +352,10 @@ def run_export() -> bool:
     print(f"  Outputs: {[o.name for o in onnx_model.graph.output]}")
     print(f"\nCalibration: {CALIBRATION_PATH}")
     print(f"  Type: {calibration_config['type']}")
-    print(f"  Temperature: {calibration_config['temperature']}")
+    if calibration_config['type'] == 'temperature':
+        print(f"  Temperature: {calibration_config['temperature']:.4f}")
+    elif calibration_config['type'] == 'binning':
+        print(f"  Bins: {calibration_config['n_bins']}")
 
     elapsed = (datetime.now() - start).total_seconds()
     logger.info(f"Completed in {elapsed:.1f} seconds")
@@ -371,13 +436,14 @@ Examples:
 
     start_time = datetime.now()
     validation_results = {}
+    calibration_predictions = []
 
     try:
         if args.validate_only:
             # Only validation
-            validation_results = run_validation()
+            validation_results, calibration_predictions = run_validation()
         elif args.export_only:
-            # Only export
+            # Only export (no calibration data available)
             if not run_export():
                 sys.exit(1)
         else:
@@ -394,11 +460,11 @@ Examples:
             if not run_training():
                 sys.exit(1)
 
-            # Step 3: Validation
-            validation_results = run_validation()
+            # Step 3: Validation (also collects calibration data)
+            validation_results, calibration_predictions = run_validation()
 
-            # Step 4: Export
-            if not run_export():
+            # Step 4: Export with fitted calibration
+            if not run_export(calibration_predictions):
                 sys.exit(1)
 
         # Print summary
