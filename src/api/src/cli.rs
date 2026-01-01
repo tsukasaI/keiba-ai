@@ -54,6 +54,10 @@ pub enum Commands {
         /// Model path override
         #[arg(short, long)]
         model: Option<PathBuf>,
+
+        /// Calibration config JSON file
+        #[arg(short, long)]
+        calibration: Option<PathBuf>,
     },
 
     /// Run backtest on historical data
@@ -117,6 +121,10 @@ pub enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
 
+        /// Calibration config JSON file
+        #[arg(long)]
+        calibration: Option<PathBuf>,
+
         /// Force refresh cache
         #[arg(long)]
         force: bool,
@@ -127,12 +135,51 @@ pub enum Commands {
     },
 }
 
+/// Load calibrator from path or default location.
+fn load_calibrator(path: &Option<PathBuf>) -> Calibrator {
+    match path {
+        Some(p) => {
+            eprintln!("Loading calibrator from: {}", p.display());
+            match Calibrator::from_file(p) {
+                Ok(cal) => {
+                    eprintln!("Calibrator loaded: {:?}", cal);
+                    cal
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to load calibrator: {}", e);
+                    Calibrator::None
+                }
+            }
+        }
+        None => {
+            // Try default path
+            let default = PathBuf::from("data/models/calibration.json");
+            if default.exists() {
+                eprintln!("Loading calibrator from default: {}", default.display());
+                match Calibrator::from_file(&default) {
+                    Ok(cal) => {
+                        eprintln!("Calibrator loaded: {:?}", cal);
+                        cal
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: Failed to load default calibrator: {}", e);
+                        Calibrator::None
+                    }
+                }
+            } else {
+                Calibrator::None
+            }
+        }
+    }
+}
+
 /// Run CLI prediction from file.
 pub async fn run_predict(
     input: PathBuf,
     bet_types: Vec<String>,
     format: String,
     model_path: Option<PathBuf>,
+    calibration_path: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     // Load configuration
     let mut config = AppConfig::load()?;
@@ -169,7 +216,16 @@ pub async fn run_predict(
 
     // Run model inference
     let position_probs = model.predict(features)?;
-    let win_probs = extract_win_probs(&position_probs, &horse_ids);
+    let raw_win_probs = extract_win_probs(&position_probs, &horse_ids);
+
+    // Load and apply calibration
+    let calibrator = load_calibrator(&calibration_path);
+    let win_probs = if calibrator.is_enabled() {
+        eprintln!("Applying calibration...");
+        calibrator.calibrate_map(&raw_win_probs)
+    } else {
+        raw_win_probs
+    };
 
     let min_prob = config.betting.min_probability;
     let max_combos = config.betting.max_combinations;
@@ -518,6 +574,7 @@ pub async fn run_live(
     bet_type: String,
     ev_threshold: f64,
     output: Option<PathBuf>,
+    calibration_path: Option<PathBuf>,
     force: bool,
     verbose: bool,
 ) -> anyhow::Result<()> {
@@ -707,7 +764,18 @@ pub async fn run_live(
     }
 
     let position_probs = model.predict(features_array)?;
-    let win_probs = extract_win_probs(&position_probs, &horse_ids);
+    let raw_win_probs = extract_win_probs(&position_probs, &horse_ids);
+
+    // Load and apply calibration
+    let calibrator = load_calibrator(&calibration_path);
+    let win_probs = if calibrator.is_enabled() {
+        if verbose {
+            eprintln!("Applying calibration...");
+        }
+        calibrator.calibrate_map(&raw_win_probs)
+    } else {
+        raw_win_probs
+    };
 
     // Step 6: Calculate probabilities and EV
     eprintln!("Step 6: Calculating probabilities and expected values...");

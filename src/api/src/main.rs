@@ -42,7 +42,8 @@ async fn main() -> anyhow::Result<()> {
             bet_types,
             format,
             model,
-        } => cli::run_predict(input, bet_types, format, model).await,
+            calibration,
+        } => cli::run_predict(input, bet_types, format, model, calibration).await,
         Commands::Backtest {
             features,
             odds,
@@ -74,9 +75,10 @@ async fn main() -> anyhow::Result<()> {
             bet_type,
             ev_threshold,
             output,
+            calibration,
             force,
             verbose,
-        } => cli::run_live(race_id, bet_type, ev_threshold, output, force, verbose).await,
+        } => cli::run_live(race_id, bet_type, ev_threshold, output, calibration, force, verbose).await,
     }
 }
 
