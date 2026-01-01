@@ -44,7 +44,7 @@ keiba-ai/
 │       │       ├── browser.rs       # chromiumoxide browser automation
 │       │       ├── cache.rs         # File-based cache with TTL
 │       │       ├── rate_limiter.rs  # Token bucket rate limiter
-│       │       ├── feature_builder.rs # 23 ML features
+│       │       ├── feature_builder.rs # 39 ML features
 │       │       └── parsers/         # HTML/JSON parsers
 │       │           ├── race_card.rs # Race card parser
 │       │           ├── horse.rs     # Horse profile parser
@@ -53,7 +53,11 @@ keiba-ai/
 │       │           └── odds.rs      # Odds API parser
 │       └── scripts/
 │           └── prepare_backtest_data.py
-├── tests/                    # Python unit tests (176 tests)
+├── scripts/                  # Python scripts
+│   ├── retrain.py            # Model retraining pipeline
+│   ├── run_validation.py     # Validation backtest
+│   └── export_onnx.py        # ONNX model export
+├── tests/                    # Python unit tests (213 tests)
 │   └── test_*.py             # Model/backtesting tests
 └── notebooks/                # Jupyter exploration
 ```
@@ -206,6 +210,27 @@ cd src/api && cargo build --release
 ./target/release/keiba-api live --help
 ```
 
+### Model Retraining Pipeline
+
+```bash
+# Full pipeline: features → training → validation → export
+python scripts/retrain.py
+
+# Skip feature engineering (use existing features.parquet)
+python scripts/retrain.py --skip-features
+
+# Only run validation (requires trained model)
+python scripts/retrain.py --validate-only
+
+# Only export ONNX + calibration (requires trained model)
+python scripts/retrain.py --export-only
+```
+
+Outputs:
+- `data/models/position_model_39features.pkl` - Pickled model
+- `data/models/position_model.onnx` - ONNX model for Rust
+- `data/models/calibration.json` - Fitted calibration config
+
 #### CLI Commands
 
 | Command | Description |
@@ -227,6 +252,7 @@ Options:
   -b, --bet-type <BET_TYPE>      Bet type: exacta, trifecta [default: exacta]
       --ev-threshold <THRESHOLD>  EV threshold for recommendations [default: 1.0]
   -o, --output <FILE>            Output file path (JSON)
+      --calibration <FILE>       Calibration config file [default: data/models/calibration.json]
   -f, --force                    Force refresh (ignore cache)
   -v, --verbose                  Show detailed progress
 ```
@@ -282,15 +308,15 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 - ✅ Live race scraper (netkeiba.com) - **Full Rust implementation**
 - ✅ Single binary CLI (`live` command - no Python dependency)
 - ✅ File-based cache with TTL (7 days for profiles, 24h for race card)
-- ✅ Comprehensive test suite (176 Python + 42 Rust tests)
+- ✅ Calibration in Rust CLI (`live`, `predict` commands with `--calibration` flag)
+- ✅ Model retraining pipeline (`scripts/retrain.py`)
+- ✅ Comprehensive test suite (213 Python + 53 Rust tests)
 
 ## Future Extensions
 
-- Calibration integration in Rust API `/predict` endpoint
 - NAR (Regional racing) support
 - JRA-VAN integration for real-time predictions with pre-race odds
 - Production deployment (Docker, monitoring)
-- Model retraining pipeline
 
 ## References
 
