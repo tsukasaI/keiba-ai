@@ -107,6 +107,9 @@ class FeatureEngineer:
             'horse_sex': '性別',
             'popularity': '人気',
             'last_3f': '上り',
+            'weight_change': '場体重増減',
+            'race_class': '競争条件',
+            'graded_race': 'リステッド・重賞競走',
         }
 
         # Apply exact mappings
@@ -393,6 +396,100 @@ class FeatureEngineer:
         # Total career races
         self.main_df['career_races'] = self.main_df.groupby(horse_col).cumcount()
 
+    def create_pace_features(self) -> None:
+        """Calculate pace/speed features from final 600m times (上り).
+
+        Creates historical pace features per horse:
+        - last_3f_avg: Average final 600m time (last 5 races)
+        - last_3f_best: Best final 600m time in career
+        - last_3f_last: Final 600m time in most recent race
+        """
+        if self.main_df is None:
+            return
+
+        logger.info("Creating pace features...")
+
+        horse_col = self.col_map.get('horse_id') or self.col_map.get('horse_name')
+        last_3f_col = self.col_map.get('last_3f')
+
+        if horse_col is None or last_3f_col is None:
+            logger.warning("Required columns not found, skipping pace features")
+            return
+
+        if last_3f_col not in self.main_df.columns:
+            logger.warning(f"Column {last_3f_col} not found, skipping pace features")
+            return
+
+        # Convert to numeric (上り is in seconds, e.g., 33.5)
+        self.main_df['_last_3f'] = pd.to_numeric(self.main_df[last_3f_col], errors='coerce')
+
+        # Sort by horse and date for rolling calculations
+        sort_cols = [horse_col]
+        if '_date' in self.main_df.columns:
+            sort_cols.append('_date')
+        self.main_df = self.main_df.sort_values(sort_cols)
+
+        # Average final 600m time (last 5 races) - use shift to prevent data leakage
+        self.main_df['last_3f_avg'] = (
+            self.main_df.groupby(horse_col)['_last_3f']
+            .transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean())
+        )
+
+        # Best (minimum) final 600m time in career - use shift and expanding
+        self.main_df['last_3f_best'] = (
+            self.main_df.groupby(horse_col)['_last_3f']
+            .transform(lambda x: x.shift(1).expanding().min())
+        )
+
+        # Most recent final 600m time
+        self.main_df['last_3f_last'] = self.main_df.groupby(horse_col)['_last_3f'].shift(1)
+
+        logger.info("Pace features created: last_3f_avg, last_3f_best, last_3f_last")
+
+    def create_race_classification_features(self) -> None:
+        """Create race classification features.
+
+        Creates:
+        - weight_change_kg: Weight change from last race (in kg)
+        - is_graded_race: Binary (1 if G1/G2/G3/Listed, 0 otherwise)
+        - grade_level: Numeric grade (1=G1, 2=G2, 3=G3, 4=Listed, 5=Open, 0=other)
+        """
+        if self.main_df is None:
+            return
+
+        logger.info("Creating race classification features...")
+
+        # Weight change
+        weight_change_col = self.col_map.get('weight_change')
+        if weight_change_col and weight_change_col in self.main_df.columns:
+            self.main_df['weight_change_kg'] = pd.to_numeric(
+                self.main_df[weight_change_col], errors='coerce'
+            ).fillna(0)
+            logger.info("Created weight_change_kg feature")
+
+        # Graded race features
+        graded_col = self.col_map.get('graded_race')
+        if graded_col and graded_col in self.main_df.columns:
+            # Binary: is it a graded/listed race?
+            graded_values = ['G1', 'G2', 'G3', 'L', 'J.G1', 'J.G2', 'J.G3']
+            self.main_df['is_graded_race'] = (
+                self.main_df[graded_col].isin(graded_values)
+            ).astype(int)
+
+            # Numeric grade level (lower = more prestigious)
+            grade_map = {
+                'G1': 1, 'J.G1': 1,
+                'G2': 2, 'J.G2': 2,
+                'G3': 3, 'J.G3': 3,
+                'L': 4,
+                'G': 5,  # Open graded
+            }
+            self.main_df['grade_level'] = (
+                self.main_df[graded_col].map(grade_map).fillna(6)
+            ).astype(int)
+
+            logger.info("Created is_graded_race and grade_level features")
+
     def create_aptitude_features(self) -> None:
         """Calculate aptitude features (distance, surface, track)."""
         if self.main_df is None:
@@ -553,6 +650,8 @@ class FeatureEngineer:
         self.create_running_style_features()
         self.create_jockey_trainer_features()
         self.create_past_performance_features()
+        self.create_pace_features()
+        self.create_race_classification_features()
         self.create_aptitude_features()
         self.create_blood_features()
 

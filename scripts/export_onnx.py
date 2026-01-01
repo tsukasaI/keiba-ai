@@ -19,8 +19,8 @@ from src.models.config import FEATURES
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Paths
-MODEL_PATH = Path("data/models/position_model.pkl")
+# Paths (updated to 39-feature model)
+MODEL_PATH = Path("data/models/position_model_39features.pkl")
 ONNX_PATH = Path("data/models/position_model.onnx")
 
 

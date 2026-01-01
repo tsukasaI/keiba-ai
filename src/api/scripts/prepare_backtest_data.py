@@ -32,20 +32,24 @@ def prepare_features(input_path: Path, output_path: Path) -> None:
         "馬体重": "horse_weight",
     }
 
-    # Feature columns (already English)
+    # Feature columns (already English) - 39 total features
     feature_cols = [
+        # Basic (5)
         "horse_age_num",
         "horse_sex_encoded",
         "post_position_num",
+        # Jockey/Trainer (5)
         "jockey_win_rate",
         "jockey_place_rate",
         "trainer_win_rate",
         "jockey_races",
         "trainer_races",
+        # Race conditions (4)
         "distance_num",
         "is_turf",
         "is_dirt",
         "track_condition_num",
+        # Past performance (8)
         "avg_position_last_3",
         "avg_position_last_5",
         "win_rate_last_3",
@@ -54,7 +58,28 @@ def prepare_features(input_path: Path, output_path: Path) -> None:
         "place_rate_last_5",
         "last_position",
         "career_races",
+        # Odds (1)
         "odds_log",
+        # Running style (3)
+        "early_position",
+        "late_position",
+        "position_change",
+        # Aptitude (7)
+        "aptitude_sprint",
+        "aptitude_mile",
+        "aptitude_intermediate",
+        "aptitude_long",
+        "aptitude_turf",
+        "aptitude_dirt",
+        "aptitude_course",
+        # Pace (3)
+        "last_3f_avg",
+        "last_3f_best",
+        "last_3f_last",
+        # Race classification (3)
+        "weight_change_kg",
+        "is_graded_race",
+        "grade_level",
     ]
 
     # Select and rename columns

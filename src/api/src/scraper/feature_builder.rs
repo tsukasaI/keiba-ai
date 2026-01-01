@@ -1,11 +1,11 @@
 //! Feature builder for ML model input.
 //!
-//! Generates 23 features from scraped data.
+//! Generates 39 features from scraped data.
 
 use crate::scraper::parsers::{HorseProfile, JockeyProfile, RaceEntry, RaceInfo, TrainerProfile};
 use serde::{Deserialize, Serialize};
 
-/// 23 features for the ML model
+/// 39 features for the ML model
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HorseFeatures {
     // Basic (5)
@@ -36,26 +36,50 @@ pub struct HorseFeatures {
     pub career_races: f32,
     // Odds (1)
     pub odds_log: f32,
+    // Running style (3)
+    pub early_position: f32,
+    pub late_position: f32,
+    pub position_change: f32,
+    // Aptitude (7)
+    pub aptitude_sprint: f32,
+    pub aptitude_mile: f32,
+    pub aptitude_intermediate: f32,
+    pub aptitude_long: f32,
+    pub aptitude_turf: f32,
+    pub aptitude_dirt: f32,
+    pub aptitude_course: f32,
+    // Pace (3)
+    pub last_3f_avg: f32,
+    pub last_3f_best: f32,
+    pub last_3f_last: f32,
+    // Race classification (3)
+    pub weight_change_kg: f32,
+    pub is_graded_race: f32,
+    pub grade_level: f32,
 }
 
 impl HorseFeatures {
-    /// Convert to array for model input
-    pub fn to_array(&self) -> [f32; 23] {
+    /// Convert to array for model input (39 features)
+    pub fn to_array(&self) -> [f32; 39] {
         [
+            // Basic (5)
             self.horse_age_num,
             self.horse_sex_encoded,
             self.post_position_num,
             self.weight_carried,
             self.horse_weight,
+            // Jockey/Trainer (5)
             self.jockey_win_rate,
             self.jockey_place_rate,
             self.trainer_win_rate,
             self.jockey_races,
             self.trainer_races,
+            // Race conditions (4)
             self.distance_num,
             self.is_turf,
             self.is_dirt,
             self.track_condition_num,
+            // Past performance (8)
             self.avg_position_last_3,
             self.avg_position_last_5,
             self.win_rate_last_3,
@@ -64,7 +88,28 @@ impl HorseFeatures {
             self.place_rate_last_5,
             self.last_position,
             self.career_races,
+            // Odds (1)
             self.odds_log,
+            // Running style (3)
+            self.early_position,
+            self.late_position,
+            self.position_change,
+            // Aptitude (7)
+            self.aptitude_sprint,
+            self.aptitude_mile,
+            self.aptitude_intermediate,
+            self.aptitude_long,
+            self.aptitude_turf,
+            self.aptitude_dirt,
+            self.aptitude_course,
+            // Pace (3)
+            self.last_3f_avg,
+            self.last_3f_best,
+            self.last_3f_last,
+            // Race classification (3)
+            self.weight_change_kg,
+            self.is_graded_race,
+            self.grade_level,
         ]
     }
 }
@@ -73,20 +118,36 @@ impl HorseFeatures {
 struct Defaults;
 
 impl Defaults {
+    // Basic
     const HORSE_AGE: f32 = 4.0;
     const WEIGHT_CARRIED: f32 = 55.0;
     const HORSE_WEIGHT: f32 = 480.0;
+    // Jockey/Trainer
     const JOCKEY_WIN_RATE: f32 = 0.07;
     const JOCKEY_PLACE_RATE: f32 = 0.21;
     const TRAINER_WIN_RATE: f32 = 0.07;
     const JOCKEY_RACES: f32 = 100.0;
     const TRAINER_RACES: f32 = 100.0;
+    // Past performance
     const AVG_POSITION: f32 = 10.0;
     const WIN_RATE: f32 = 0.0;
     const PLACE_RATE: f32 = 0.0;
     const LAST_POSITION: f32 = 10.0;
     const CAREER_RACES: f32 = 0.0;
+    // Odds
     const ODDS_LOG: f32 = 2.303; // log(10)
+    // Running style
+    const EARLY_POSITION: f32 = 9.0;
+    const LATE_POSITION: f32 = 9.0;
+    const POSITION_CHANGE: f32 = 0.0;
+    // Aptitude (default 0.0 = no data)
+    const APTITUDE: f32 = 0.0;
+    // Pace (上り3ハロン)
+    const LAST_3F_AVG: f32 = 35.0;  // ~35 seconds for last 600m
+    const LAST_3F_BEST: f32 = 34.0;
+    const LAST_3F_LAST: f32 = 35.0;
+    // Race classification
+    const WEIGHT_CHANGE: f32 = 0.0;
 }
 
 /// Feature builder
@@ -181,7 +242,49 @@ impl FeatureBuilder {
             .map(|o| (o as f32).ln())
             .unwrap_or(Defaults::ODDS_LOG);
 
+        // Running style features (defaults - would need race history to compute properly)
+        features.early_position = Defaults::EARLY_POSITION;
+        features.late_position = Defaults::LATE_POSITION;
+        features.position_change = Defaults::POSITION_CHANGE;
+
+        // Aptitude features (defaults - would need race history to compute properly)
+        features.aptitude_sprint = Defaults::APTITUDE;
+        features.aptitude_mile = Defaults::APTITUDE;
+        features.aptitude_intermediate = Defaults::APTITUDE;
+        features.aptitude_long = Defaults::APTITUDE;
+        features.aptitude_turf = Defaults::APTITUDE;
+        features.aptitude_dirt = Defaults::APTITUDE;
+        features.aptitude_course = Defaults::APTITUDE;
+
+        // Pace features (上り3ハロン - would need race history to compute properly)
+        features.last_3f_avg = Defaults::LAST_3F_AVG;
+        features.last_3f_best = Defaults::LAST_3F_BEST;
+        features.last_3f_last = Defaults::LAST_3F_LAST;
+
+        // Race classification features
+        features.weight_change_kg = Defaults::WEIGHT_CHANGE;
+        features.is_graded_race = Self::encode_grade(&race.grade);
+        features.grade_level = Self::encode_grade_level(&race.grade);
+
         features
+    }
+
+    /// Encode race grade to binary (0 = non-graded, 1 = graded)
+    fn encode_grade(grade: &str) -> f32 {
+        match grade {
+            "G1" | "G2" | "G3" => 1.0,
+            _ => 0.0,
+        }
+    }
+
+    /// Encode grade level (0 = non-graded, 1 = G3, 2 = G2, 3 = G1)
+    fn encode_grade_level(grade: &str) -> f32 {
+        match grade {
+            "G1" => 3.0,
+            "G2" => 2.0,
+            "G3" => 1.0,
+            _ => 0.0,
+        }
     }
 
     /// Encode sex to numeric value
@@ -235,9 +338,26 @@ mod tests {
         };
 
         let arr = features.to_array();
-        assert_eq!(arr.len(), 23);
+        assert_eq!(arr.len(), 39);
         assert_eq!(arr[0], 4.0);
         assert_eq!(arr[1], 0.0);
         assert_eq!(arr[2], 5.0);
+    }
+
+    #[test]
+    fn test_encode_grade() {
+        assert_eq!(FeatureBuilder::encode_grade("G1"), 1.0);
+        assert_eq!(FeatureBuilder::encode_grade("G2"), 1.0);
+        assert_eq!(FeatureBuilder::encode_grade("G3"), 1.0);
+        assert_eq!(FeatureBuilder::encode_grade("OP"), 0.0);
+        assert_eq!(FeatureBuilder::encode_grade(""), 0.0);
+    }
+
+    #[test]
+    fn test_encode_grade_level() {
+        assert_eq!(FeatureBuilder::encode_grade_level("G1"), 3.0);
+        assert_eq!(FeatureBuilder::encode_grade_level("G2"), 2.0);
+        assert_eq!(FeatureBuilder::encode_grade_level("G3"), 1.0);
+        assert_eq!(FeatureBuilder::encode_grade_level("OP"), 0.0);
     }
 }

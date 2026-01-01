@@ -14,8 +14,9 @@ pub struct RaceInfo {
     pub racecourse: String,
     pub date: String,
     pub distance: u32,
-    pub surface: String,      // "turf" or "dirt"
+    pub surface: String,         // "turf" or "dirt"
     pub track_condition: String, // "良", "稍重", "重", "不良"
+    pub grade: String,           // "G1", "G2", "G3", "OP", "" etc.
 }
 
 /// Entry in race card
@@ -130,7 +131,59 @@ impl RaceCardParser {
             info.track_condition = "良".to_string();
         }
 
+        // Race grade from race name or RaceData01/02
+        info.grade = Self::extract_grade(&info.race_name);
+
+        // Also check RaceData01 for grade icons/text
+        if info.grade.is_empty() {
+            if let Ok(selector) = Selector::parse(".RaceData01") {
+                if let Some(elem) = document.select(&selector).next() {
+                    let text = elem.text().collect::<String>();
+                    info.grade = Self::extract_grade(&text);
+                }
+            }
+        }
+
         Ok(info)
+    }
+
+    /// Extract race grade from text
+    fn extract_grade(text: &str) -> String {
+        // Check for GI, GII, GIII patterns (used in some displays)
+        if text.contains("GI") && !text.contains("GII") && !text.contains("GIII") {
+            return "G1".to_string();
+        }
+        if text.contains("GII") && !text.contains("GIII") {
+            return "G2".to_string();
+        }
+        if text.contains("GIII") {
+            return "G3".to_string();
+        }
+        // Check for G1, G2, G3 patterns
+        if text.contains("(G1)") || text.contains("（G1）") || text.contains("G1") {
+            return "G1".to_string();
+        }
+        if text.contains("(G2)") || text.contains("（G2）") || text.contains("G2") {
+            return "G2".to_string();
+        }
+        if text.contains("(G3)") || text.contains("（G3）") || text.contains("G3") {
+            return "G3".to_string();
+        }
+        // Check for Japanese grade notation
+        if text.contains("（Ｇ１）") || text.contains("(Ｇ１)") {
+            return "G1".to_string();
+        }
+        if text.contains("（Ｇ２）") || text.contains("(Ｇ２)") {
+            return "G2".to_string();
+        }
+        if text.contains("（Ｇ３）") || text.contains("(Ｇ３)") {
+            return "G3".to_string();
+        }
+        // Check for オープン (Open class)
+        if text.contains("オープン") || text.contains("OP") {
+            return "OP".to_string();
+        }
+        String::new()
     }
 
     fn parse_entries(document: &Html) -> Result<Vec<RaceEntry>> {

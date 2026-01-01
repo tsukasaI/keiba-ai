@@ -12,8 +12,8 @@ use crate::config::FEATURE_NAMES;
 /// Number of position classes (1st through 18th)
 pub const NUM_CLASSES: usize = 18;
 
-/// Number of input features
-pub const NUM_FEATURES: usize = 23;
+/// Number of input features (updated for 39-feature model)
+pub const NUM_FEATURES: usize = 39;
 
 /// ONNX model wrapper for position probability prediction.
 pub struct PositionModel {

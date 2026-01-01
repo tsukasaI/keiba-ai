@@ -40,6 +40,30 @@ FEATURE_GROUPS = {
     "odds": [
         "odds_log",
     ],
+    "running_style": [
+        "early_position",      # Avg corner 1-2 position
+        "late_position",       # Avg corner 3-4 position
+        "position_change",     # Late - Early (negative = moving up)
+    ],
+    "aptitude": [
+        "aptitude_sprint",      # Win rate in sprint distances (<1400m)
+        "aptitude_mile",        # Win rate in mile distances (1400-1800m)
+        "aptitude_intermediate",  # Win rate in intermediate distances (1800-2200m)
+        "aptitude_long",        # Win rate in long distances (>2200m)
+        "aptitude_turf",        # Place rate on turf
+        "aptitude_dirt",        # Place rate on dirt
+        "aptitude_course",      # Place rate at specific racecourse
+    ],
+    "pace": [
+        "last_3f_avg",          # Average final 600m time (last 5 races)
+        "last_3f_best",         # Best final 600m time in career
+        "last_3f_last",         # Most recent final 600m time
+    ],
+    "race_classification": [
+        "weight_change_kg",     # Weight change from last race (kg)
+        "is_graded_race",       # Binary: 1 if G1/G2/G3/Listed
+        "grade_level",          # 1=G1, 2=G2, 3=G3, 4=Listed, 5=Open, 6=other
+    ],
 }
 
 # All features to use for training
@@ -49,6 +73,10 @@ FEATURES = (
     + FEATURE_GROUPS["race_conditions"]
     + FEATURE_GROUPS["past_performance"]
     + FEATURE_GROUPS["odds"]
+    + FEATURE_GROUPS["running_style"]
+    + FEATURE_GROUPS["aptitude"]
+    + FEATURE_GROUPS["pace"]
+    + FEATURE_GROUPS["race_classification"]
 )
 
 # Target column (Japanese: finishing position)
@@ -104,6 +132,26 @@ MISSING_DEFAULTS = {
     "win_rate_last_5": 0.0,
     "place_rate_last_3": 0.0,
     "place_rate_last_5": 0.0,
+    # Running style defaults (middle of pack)
+    "early_position": 9.0,
+    "late_position": 9.0,
+    "position_change": 0.0,
+    # Aptitude defaults (no prior history)
+    "aptitude_sprint": 0.0,
+    "aptitude_mile": 0.0,
+    "aptitude_intermediate": 0.0,
+    "aptitude_long": 0.0,
+    "aptitude_turf": 0.0,
+    "aptitude_dirt": 0.0,
+    "aptitude_course": 0.0,
+    # Pace defaults (average final 600m time is ~34 seconds)
+    "last_3f_avg": 35.0,
+    "last_3f_best": 35.0,
+    "last_3f_last": 35.0,
+    # Race classification defaults
+    "weight_change_kg": 0.0,
+    "is_graded_race": 0,
+    "grade_level": 6,  # Non-graded race
 }
 
 # Profitable segments identified from backtesting
