@@ -1,11 +1,12 @@
 //! Feature builder for ML model input.
 //!
-//! Generates 39 features from scraped data.
+//! Generates 39 features from scraped data (43 with blood features).
 
 use crate::scraper::parsers::{HorseProfile, JockeyProfile, RaceEntry, RaceInfo, TrainerProfile};
+use crate::scraper::sire_stats::BloodFeatures;
 use serde::{Deserialize, Serialize};
 
-/// 39 features for the ML model
+/// 39 features for the ML model (43 with blood features)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HorseFeatures {
     // Basic (5)
@@ -56,10 +57,15 @@ pub struct HorseFeatures {
     pub weight_change_kg: f32,
     pub is_graded_race: f32,
     pub grade_level: f32,
+    // Blood features (4) - requires model retraining to use
+    pub sire_win_rate: f32,
+    pub sire_place_rate: f32,
+    pub broodmare_sire_win_rate: f32,
+    pub broodmare_sire_place_rate: f32,
 }
 
 impl HorseFeatures {
-    /// Convert to array for model input (39 features)
+    /// Convert to array for model input (39 features - current model)
     pub fn to_array(&self) -> [f32; 39] {
         [
             // Basic (5)
@@ -112,6 +118,65 @@ impl HorseFeatures {
             self.grade_level,
         ]
     }
+
+    /// Convert to array with blood features (43 features - requires retrained model)
+    pub fn to_array_with_blood(&self) -> [f32; 43] {
+        [
+            // Basic (5)
+            self.horse_age_num,
+            self.horse_sex_encoded,
+            self.post_position_num,
+            self.weight_carried,
+            self.horse_weight,
+            // Jockey/Trainer (5)
+            self.jockey_win_rate,
+            self.jockey_place_rate,
+            self.trainer_win_rate,
+            self.jockey_races,
+            self.trainer_races,
+            // Race conditions (4)
+            self.distance_num,
+            self.is_turf,
+            self.is_dirt,
+            self.track_condition_num,
+            // Past performance (8)
+            self.avg_position_last_3,
+            self.avg_position_last_5,
+            self.win_rate_last_3,
+            self.win_rate_last_5,
+            self.place_rate_last_3,
+            self.place_rate_last_5,
+            self.last_position,
+            self.career_races,
+            // Odds (1)
+            self.odds_log,
+            // Running style (3)
+            self.early_position,
+            self.late_position,
+            self.position_change,
+            // Aptitude (7)
+            self.aptitude_sprint,
+            self.aptitude_mile,
+            self.aptitude_intermediate,
+            self.aptitude_long,
+            self.aptitude_turf,
+            self.aptitude_dirt,
+            self.aptitude_course,
+            // Pace (3)
+            self.last_3f_avg,
+            self.last_3f_best,
+            self.last_3f_last,
+            // Race classification (3)
+            self.weight_change_kg,
+            self.is_graded_race,
+            self.grade_level,
+            // Blood features (4)
+            self.sire_win_rate,
+            self.sire_place_rate,
+            self.broodmare_sire_win_rate,
+            self.broodmare_sire_place_rate,
+        ]
+    }
 }
 
 /// Default values for missing data
@@ -148,6 +213,9 @@ impl Defaults {
     const LAST_3F_LAST: f32 = 35.0;
     // Race classification
     const WEIGHT_CHANGE: f32 = 0.0;
+    // Blood features
+    const SIRE_WIN_RATE: f32 = 0.07;
+    const SIRE_PLACE_RATE: f32 = 0.21;
 }
 
 /// Feature builder
@@ -286,6 +354,20 @@ impl FeatureBuilder {
         features.is_graded_race = Self::encode_grade(&race.grade);
         features.grade_level = Self::encode_grade_level(&race.grade);
 
+        // Blood features from sire statistics
+        if let Some(h) = horse {
+            let blood = BloodFeatures::compute(&h.sire, &h.broodmare_sire);
+            features.sire_win_rate = blood.sire_win_rate;
+            features.sire_place_rate = blood.sire_place_rate;
+            features.broodmare_sire_win_rate = blood.broodmare_sire_win_rate;
+            features.broodmare_sire_place_rate = blood.broodmare_sire_place_rate;
+        } else {
+            features.sire_win_rate = Defaults::SIRE_WIN_RATE;
+            features.sire_place_rate = Defaults::SIRE_PLACE_RATE;
+            features.broodmare_sire_win_rate = Defaults::SIRE_WIN_RATE;
+            features.broodmare_sire_place_rate = Defaults::SIRE_PLACE_RATE;
+        }
+
         features
     }
 
@@ -379,5 +461,42 @@ mod tests {
         assert_eq!(FeatureBuilder::encode_grade_level("G2"), 2.0);
         assert_eq!(FeatureBuilder::encode_grade_level("G3"), 1.0);
         assert_eq!(FeatureBuilder::encode_grade_level("OP"), 0.0);
+    }
+
+    #[test]
+    fn test_to_array_with_blood() {
+        let features = HorseFeatures {
+            horse_age_num: 4.0,
+            horse_sex_encoded: 0.0,
+            post_position_num: 5.0,
+            sire_win_rate: 0.12,
+            sire_place_rate: 0.35,
+            broodmare_sire_win_rate: 0.10,
+            broodmare_sire_place_rate: 0.30,
+            ..Default::default()
+        };
+
+        let arr = features.to_array_with_blood();
+        assert_eq!(arr.len(), 43);
+        // Check blood features at the end
+        assert_eq!(arr[39], 0.12);  // sire_win_rate
+        assert_eq!(arr[40], 0.35);  // sire_place_rate
+        assert_eq!(arr[41], 0.10);  // broodmare_sire_win_rate
+        assert_eq!(arr[42], 0.30);  // broodmare_sire_place_rate
+    }
+
+    #[test]
+    fn test_blood_features_default() {
+        let features = HorseFeatures::default();
+
+        // Default blood features should be 0
+        assert_eq!(features.sire_win_rate, 0.0);
+        assert_eq!(features.sire_place_rate, 0.0);
+
+        // to_array should still return 39 features
+        assert_eq!(features.to_array().len(), 39);
+
+        // to_array_with_blood should return 43 features
+        assert_eq!(features.to_array_with_blood().len(), 43);
     }
 }

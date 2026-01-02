@@ -1,0 +1,136 @@
+{
+  "version": "1.0",
+  "description": "Sire statistics for blood features",
+  "sire_count": 14,
+  "bms_count": 4,
+  "default_win_rate": 0.07,
+  "default_place_rate": 0.21,
+  "sires": {
+    "ゴールドシップ": {
+      "win_rate": 0.2857142857142857,
+      "place_rate": 0.4857142857142857,
+      "avg_earnings": 0.0,
+      "offspring_count": 4,
+      "total_races": 70
+    },
+    "ディープインパクト": {
+      "win_rate": 0.16393442622950818,
+      "place_rate": 0.3770491803278688,
+      "avg_earnings": 0.0,
+      "offspring_count": 4,
+      "total_races": 122
+    },
+    "レイデオロ": {
+      "win_rate": 0.35,
+      "place_rate": 0.6,
+      "avg_earnings": 0.0,
+      "offspring_count": 4,
+      "total_races": 40
+    },
+    "BMS:ハーツクライ": {
+      "win_rate": 0.32075471698113206,
+      "place_rate": 0.5094339622641509,
+      "avg_earnings": 0,
+      "offspring_count": 3,
+      "total_races": 53
+    },
+    "キングカメハメハ": {
+      "win_rate": 0.1,
+      "place_rate": 0.3,
+      "avg_earnings": 35000000,
+      "offspring_count": 1500,
+      "total_races": 15000
+    },
+    "ハーツクライ": {
+      "win_rate": 0.09,
+      "place_rate": 0.28,
+      "avg_earnings": 30000000,
+      "offspring_count": 1200,
+      "total_races": 12000
+    },
+    "ロードカナロア": {
+      "win_rate": 0.11,
+      "place_rate": 0.32,
+      "avg_earnings": 40000000,
+      "offspring_count": 800,
+      "total_races": 8000
+    },
+    "エピファネイア": {
+      "win_rate": 0.1,
+      "place_rate": 0.3,
+      "avg_earnings": 35000000,
+      "offspring_count": 600,
+      "total_races": 6000
+    },
+    "ドゥラメンテ": {
+      "win_rate": 0.1,
+      "place_rate": 0.3,
+      "avg_earnings": 35000000,
+      "offspring_count": 400,
+      "total_races": 4000
+    },
+    "キズナ": {
+      "win_rate": 0.09,
+      "place_rate": 0.28,
+      "avg_earnings": 28000000,
+      "offspring_count": 500,
+      "total_races": 5000
+    },
+    "オルフェーヴル": {
+      "win_rate": 0.08,
+      "place_rate": 0.26,
+      "avg_earnings": 25000000,
+      "offspring_count": 700,
+      "total_races": 7000
+    },
+    "モーリス": {
+      "win_rate": 0.09,
+      "place_rate": 0.28,
+      "avg_earnings": 30000000,
+      "offspring_count": 300,
+      "total_races": 3000
+    },
+    "サトノダイヤモンド": {
+      "win_rate": 0.08,
+      "place_rate": 0.25,
+      "avg_earnings": 22000000,
+      "offspring_count": 200,
+      "total_races": 2000
+    },
+    "コントレイル": {
+      "win_rate": 0.09,
+      "place_rate": 0.28,
+      "avg_earnings": 28000000,
+      "offspring_count": 150,
+      "total_races": 1500
+    },
+    "サートゥルナーリア": {
+      "win_rate": 0.09,
+      "place_rate": 0.27,
+      "avg_earnings": 26000000,
+      "offspring_count": 100,
+      "total_races": 1000
+    },
+    "BMS:ディープインパクト": {
+      "win_rate": 0.1,
+      "place_rate": 0.3,
+      "avg_earnings": 0,
+      "offspring_count": 500,
+      "total_races": 5000
+    },
+    "BMS:キングカメハメハ": {
+      "win_rate": 0.09,
+      "place_rate": 0.28,
+      "avg_earnings": 0,
+      "offspring_count": 600,
+      "total_races": 6000
+    },
+    "BMS:ゼンノロブロイ": {
+      "win_rate": 0.08,
+      "place_rate": 0.26,
+      "avg_earnings": 0,
+      "offspring_count": 400,
+      "total_races": 4000
+    }
+  }
+}

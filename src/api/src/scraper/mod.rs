@@ -7,6 +7,9 @@ pub mod cache;
 pub mod feature_builder;
 pub mod parsers;
 pub mod rate_limiter;
+pub mod sire_stats;
+
+pub use sire_stats::{BloodFeatures, load_sire_stats};
 
 pub use browser::Browser;
 pub use rate_limiter::RateLimiter;
