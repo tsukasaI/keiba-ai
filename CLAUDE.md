@@ -335,11 +335,47 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 - ✅ Colored CLI output with progress bars
 - ✅ Comprehensive test suite (213 Python + 53 Rust tests)
 
+## Known Issues & Limitations
+
+### Critical: Feature Count Mismatch (Bug)
+
+The JSON API (`predict`, `backtest`) uses a 23-feature `HorseFeatures` struct (`types.rs`), but the ONNX model expects 39 features. The `live` command works correctly as it uses the 39-feature version from `scraper/feature_builder.rs`.
+
+**Status**: Needs fix. See `docs/TODO_IMPROVEMENTS.md` for resolution plan.
+
+### Data Limitation: Post-Race Odds in Backtest
+
+The Kaggle dataset only contains winning combination odds (post-race), not pre-race odds for all combinations. This makes backtest hit rates appear higher than real-world performance.
+
+**Mitigation**: The reported +19.3% ROI should be considered optimistic. Real-world ROI will likely be lower.
+
+### Performance: Live Command Latency
+
+Current `live` command takes ~60 seconds for 18 horses due to sequential profile fetching. Target is <30 seconds.
+
+**See**: `docs/TODO_PERFORMANCE.md` for optimization plan.
+
+### Missing Features: Blood Data
+
+Sire/broodmare features are documented but not yet implemented. These are important predictors for JRA races.
+
+**See**: `docs/TODO_IMPROVEMENTS.md` for implementation plan.
+
+## Improvement Roadmap
+
+See `docs/TODO_IMPROVEMENTS.md` for detailed improvement plans covering:
+- UI/UX enhancements (input validation, error messages, output formatting)
+- Model quality (blood features, feature importance, ensemble optimization)
+- Performance (parallel fetching, connection pooling)
+- Testing (scraper tests, integration tests, CI/CD)
+
 ## Future Extensions
 
 - NAR (Regional racing) support
 - JRA-VAN integration for real-time predictions with pre-race odds
 - Production deployment (Docker, monitoring)
+- Blood features (sire/broodmare aptitude)
+- Real-time odds edge detection
 
 ## References
 
