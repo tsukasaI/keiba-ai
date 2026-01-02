@@ -60,6 +60,8 @@ pub struct BettingConfig {
     pub bet_unit: u32,
     #[serde(default = "default_kelly_fraction")]
     pub kelly_fraction: f64,
+    #[serde(default = "default_bankroll")]
+    pub bankroll: f64,
 }
 
 fn default_ev_threshold() -> f64 {
@@ -82,6 +84,10 @@ fn default_kelly_fraction() -> f64 {
     0.25
 }
 
+fn default_bankroll() -> f64 {
+    100000.0  // Default 100,000 yen bankroll
+}
+
 impl Default for BettingConfig {
     fn default() -> Self {
         Self {
@@ -90,6 +96,7 @@ impl Default for BettingConfig {
             max_combinations: default_max_combinations(),
             bet_unit: default_bet_unit(),
             kelly_fraction: default_kelly_fraction(),
+            bankroll: default_bankroll(),
         }
     }
 }

@@ -1020,28 +1020,63 @@ pub async fn run_live(
     println!();
     println!("{}: {} ({})", "Race".bold(), race_info.race_name.cyan(), race_id);
     println!("{}: {}", "Bet type".bold(), bet_type.yellow());
+    println!("{}: ¥{:.0}", "Bankroll".bold(), config.betting.bankroll);
     println!();
 
-    // Print win probabilities
-    println!("{}", "Win Probabilities:".bold());
+    // Print win probabilities with edge detection
+    println!("{}", "Win Probabilities (vs Implied Odds):".bold());
     let mut sorted_probs: Vec<_> = win_probs.iter().collect();
     sorted_probs.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     for (id, prob) in sorted_probs.iter().take(5) {
-        let name = entries
-            .iter()
-            .find(|e| &e.horse_id == *id)
-            .map(|e| e.horse_name.as_str())
-            .unwrap_or("Unknown");
-        println!("  {:>6}: {}% - {}", id, format!("{:.2}", *prob * 100.0).yellow(), name);
+        let entry = entries.iter().find(|e| &e.horse_id == *id);
+        let name = entry.map(|e| e.horse_name.as_str()).unwrap_or("Unknown");
+
+        // Calculate edge vs implied odds
+        let win_odds = entry.and_then(|e| e.win_odds);
+        let edge_str = if let Some(odds) = win_odds {
+            let implied_prob = 100.0 / odds;
+            let edge = (*prob * 100.0) - implied_prob;
+            if edge > 0.0 {
+                format!("[{:+.1}% edge]", edge).green().to_string()
+            } else {
+                format!("[{:+.1}%]", edge).dimmed().to_string()
+            }
+        } else {
+            "".to_string()
+        };
+
+        println!("  {:>6}: {:>5.2}% - {} {}", id, *prob * 100.0, name.yellow(), edge_str);
     }
     println!();
 
-    // Print recommended bets
+    // Print recommended bets with Kelly sizing
+    let bankroll = config.betting.bankroll;
+    let kelly_fraction = config.betting.kelly_fraction;
+    let bet_unit = config.betting.bet_unit;
+
     println!("{} (EV > {}):", "Recommended Bets".bold(), format!("{}", ev_threshold).yellow());
     if results.is_empty() {
         println!("  {}", "No bets meet the EV threshold".dimmed());
     } else {
+        // Header
+        println!("  {}", "─".repeat(75));
+        println!(
+            "  {:>3} {:>10} {:>8} {:>8} {:>8} {:>10} {:>12}",
+            "#", "Combo", "Prob%", "Odds", "EV", "Kelly%", "Bet (¥)"
+        );
+        println!("  {}", "─".repeat(75));
+
         for (i, (combo, prob, odds, ev)) in results.iter().take(10).enumerate() {
+            // Calculate Kelly bet sizing
+            let decimal_odds = *odds / 100.0;
+            let b = decimal_odds - 1.0;
+            let q = 1.0 - *prob;
+            let full_kelly = ((*prob * b - q) / b).max(0.0);
+            let kelly_pct = full_kelly * kelly_fraction * 100.0;
+            let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round() as u32 * bet_unit;
+            let bet_amount = bet_amount.max(bet_unit);
+
+            // Color coding
             let ev_str = if *ev >= 1.5 {
                 format!("{:.3}", ev).green().bold().to_string()
             } else if *ev >= 1.2 {
@@ -1049,15 +1084,45 @@ pub async fn run_live(
             } else {
                 format!("{:.3}", ev).normal().to_string()
             };
+
+            let kelly_str = if kelly_pct >= 2.0 {
+                format!("{:.2}", kelly_pct).green().to_string()
+            } else if kelly_pct >= 1.0 {
+                format!("{:.2}", kelly_pct).yellow().to_string()
+            } else {
+                format!("{:.2}", kelly_pct).dimmed().to_string()
+            };
+
             println!(
-                "  {:2}. {} - Prob: {}%, Odds: {}, EV: {}",
+                "  {:>3}. {:>10} {:>7.4} {:>8.1} {:>8} {:>9}% {:>12}",
                 i + 1,
                 combo.cyan(),
-                format!("{:.4}", prob * 100.0).yellow(),
-                format!("{:.1}", odds).normal(),
+                prob * 100.0,
+                odds,
                 ev_str,
+                kelly_str,
+                format!("¥{:>6}", bet_amount),
             );
         }
+        println!("  {}", "─".repeat(75));
+
+        // Summary
+        let total_bets: u32 = results.iter().take(10).map(|(_, prob, odds, _)| {
+            let decimal_odds = *odds / 100.0;
+            let b = decimal_odds - 1.0;
+            let q = 1.0 - *prob;
+            let full_kelly = ((*prob * b - q) / b).max(0.0);
+            let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round() as u32 * bet_unit;
+            bet_amount.max(bet_unit)
+        }).sum();
+
+        println!();
+        println!(
+            "  {} ¥{:>6} ({:.1}% of bankroll)",
+            "Total suggested bets:".bold(),
+            total_bets,
+            (total_bets as f64 / bankroll) * 100.0
+        );
     }
 
     // Save to file if requested
@@ -1067,13 +1132,23 @@ pub async fn run_live(
             "race_name": race_info.race_name,
             "bet_type": bet_type,
             "ev_threshold": ev_threshold,
+            "bankroll": bankroll,
+            "kelly_fraction": kelly_fraction,
             "win_probabilities": win_probs,
-            "recommended_bets": results.iter().map(|(c, p, o, e)| {
+            "recommended_bets": results.iter().take(10).map(|(c, p, o, e)| {
+                let decimal_odds = *o / 100.0;
+                let b = decimal_odds - 1.0;
+                let q = 1.0 - *p;
+                let full_kelly = ((*p * b - q) / b).max(0.0);
+                let kelly_pct = full_kelly * kelly_fraction;
+                let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round() as u32 * bet_unit;
                 serde_json::json!({
                     "combination": c,
                     "probability": p,
                     "odds": o,
-                    "expected_value": e
+                    "expected_value": e,
+                    "kelly_fraction": kelly_pct,
+                    "recommended_bet": bet_amount.max(bet_unit)
                 })
             }).collect::<Vec<_>>()
         });

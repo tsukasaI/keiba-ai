@@ -10,6 +10,7 @@ mod config;
 mod exacta;
 mod model;
 mod quinella;
+mod retry;
 mod routes;
 mod scraper;
 mod trifecta;
