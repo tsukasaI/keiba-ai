@@ -1,6 +1,19 @@
 //! Backtesting module for walk-forward validation.
 //!
 //! Provides tools for backtesting betting strategies with historical data.
+//!
+//! # Data Leakage Warning
+//!
+//! The Kaggle JRA dataset used for backtesting has a significant limitation:
+//! it only contains odds for **winning combinations** (post-race data).
+//!
+//! This means:
+//! - Losing combinations have no odds data and are excluded from analysis
+//! - Hit rates appear artificially high (we only bet on combinations that exist in data)
+//! - ROI estimates may be **overly optimistic** compared to live trading
+//!
+//! For accurate backtesting, use JRA-VAN data which includes pre-race odds
+//! for all combinations.
 
 use chrono::NaiveDate;
 use polars::prelude::*;
@@ -738,6 +751,11 @@ pub fn print_backtest_table(results: &BacktestResults) {
             );
         }
     }
+
+    // Data leakage warning
+    println!();
+    println!("WARNING: Kaggle dataset contains only winning combination odds (post-race).");
+    println!("         Hit rates and ROI may be overly optimistic. Use JRA-VAN for accurate results.");
 }
 
 #[cfg(test)]

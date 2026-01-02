@@ -31,7 +31,7 @@ This document outlines identified improvements for UI/UX, model quality, and sys
 
 ### 2. Post-Race Odds in Backtest (Data Leakage Risk)
 
-**Status**: Known Limitation
+**Status**: ✅ DOCUMENTED
 
 **Problem**:
 - Kaggle dataset only contains winning combination odds (post-race)
@@ -40,10 +40,16 @@ This document outlines identified improvements for UI/UX, model quality, and sys
 
 **Impact**: Backtest ROI of +19.3% may be overly optimistic
 
-**Mitigation Options**:
-1. **Short-term**: Document limitation clearly, add warning in backtest output
-2. **Medium-term**: Estimate pre-race odds using population statistics
-3. **Long-term**: Integrate JRA-VAN for real pre-race odds data
+**Mitigation Implemented**:
+1. ✅ **Documentation**: Added warning in `backtest.rs` module documentation
+2. ✅ **CLI Warning**: Backtest output now displays warning about data limitation
+3. **Future**: Integrate JRA-VAN for real pre-race odds data
+
+**Backtest Output Now Shows**:
+```
+WARNING: Kaggle dataset contains only winning combination odds (post-race).
+         Hit rates and ROI may be overly optimistic. Use JRA-VAN for accurate results.
+```
 
 ---
 
@@ -365,7 +371,7 @@ jobs:
 - [x] Add input validation (race ID, bet type, model path)
 - [x] Parallel profile fetching (4x concurrent)
 - [x] Scraper unit tests (77 total Rust tests)
-- [ ] Document data leakage limitation
+- [x] Document data leakage limitation (warning in backtest output)
 
 ### v1.2 - Performance (In Progress)
 - [x] Parallel profile fetching (implemented)

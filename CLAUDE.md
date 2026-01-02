@@ -347,7 +347,13 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 
 The Kaggle dataset only contains winning combination odds (post-race), not pre-race odds for all combinations. This makes backtest hit rates appear higher than real-world performance.
 
-**Mitigation**: The reported +19.3% ROI should be considered optimistic. Real-world ROI will likely be lower.
+**Status**: ✅ Documented. Backtest CLI now displays warning:
+```
+WARNING: Kaggle dataset contains only winning combination odds (post-race).
+         Hit rates and ROI may be overly optimistic. Use JRA-VAN for accurate results.
+```
+
+**Mitigation**: The reported +19.3% ROI should be considered optimistic. Real-world ROI will likely be lower. For accurate backtesting, integrate JRA-VAN data.
 
 ### Performance: Live Command Latency
 
@@ -357,11 +363,16 @@ The Kaggle dataset only contains winning combination odds (post-race), not pre-r
 
 **See**: `docs/TODO_PERFORMANCE.md` for further optimization plan.
 
-### Missing Features: Blood Data
+### Blood Features: Infrastructure Ready
 
-Sire/broodmare features are documented but not yet implemented. These are important predictors for JRA races.
+**Status**: ✅ Infrastructure implemented. Sire/broodmare features are now computed during live prediction.
 
-**See**: `docs/TODO_IMPROVEMENTS.md` for implementation plan.
+**Implemented**:
+- `scripts/generate_sire_stats.py` - Generates sire statistics from cache
+- `src/api/src/scraper/sire_stats.rs` - Rust sire stats loader
+- 4 blood features: `sire_win_rate`, `sire_place_rate`, `broodmare_sire_win_rate`, `broodmare_sire_place_rate`
+
+**Note**: Model currently uses 39 features (blood features excluded). To enable blood features, retrain model with JRA-VAN data and use `to_array_with_blood()` (43 features).
 
 ## Improvement Roadmap
 
