@@ -213,8 +213,17 @@ cd src/api && cargo build --release
 ### Model Retraining Pipeline
 
 ```bash
-# Full pipeline: features → training → validation → export
+# Full pipeline: features → training → validation → export (LightGBM default)
 python scripts/retrain.py
+
+# Use different model types
+python scripts/retrain.py --model-type catboost   # CatBoost (better for categorical features)
+python scripts/retrain.py --model-type xgb        # XGBoost
+python scripts/retrain.py --model-type ensemble   # Ensemble (LightGBM+XGBoost+CatBoost)
+
+# Run hyperparameter optimization before training
+python scripts/retrain.py --optimize              # 50 trials (default)
+python scripts/retrain.py --optimize --n-trials 100  # More optimization trials
 
 # Skip feature engineering (use existing features.parquet)
 python scripts/retrain.py --skip-features
@@ -226,10 +235,21 @@ python scripts/retrain.py --validate-only
 python scripts/retrain.py --export-only
 ```
 
+#### Model Types
+
+| Type | Description | Best For |
+|------|-------------|----------|
+| `lgbm` | LightGBM (default) | General purpose, fast training |
+| `catboost` | CatBoost | Categorical features (jockey/trainer) |
+| `xgb` | XGBoost | Alternative gradient boosting |
+| `ensemble` | Weighted ensemble | Maximum accuracy, stable ROI |
+
 Outputs:
 - `data/models/position_model_39features.pkl` - Pickled model
-- `data/models/position_model.onnx` - ONNX model for Rust
+- `data/models/position_model_{type}.pkl` - Model by type
+- `data/models/position_model.onnx` - ONNX model for Rust (LightGBM only)
 - `data/models/calibration.json` - Fitted calibration config
+- `data/models/best_params_{type}.json` - Optimized hyperparameters (if --optimize used)
 
 #### CLI Commands
 
@@ -308,8 +328,11 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 - ✅ Live race scraper (netkeiba.com) - **Full Rust implementation**
 - ✅ Single binary CLI (`live` command - no Python dependency)
 - ✅ File-based cache with TTL (7 days for profiles, 24h for race card)
-- ✅ Calibration in Rust CLI (`live`, `predict` commands with `--calibration` flag)
+- ✅ Calibration in Rust CLI (`live`, `predict`, `serve` commands)
 - ✅ Model retraining pipeline (`scripts/retrain.py`)
+- ✅ Multiple model types (LightGBM, CatBoost, XGBoost, Ensemble)
+- ✅ Hyperparameter optimization with Optuna (`--optimize` flag)
+- ✅ Colored CLI output with progress bars
 - ✅ Comprehensive test suite (213 Python + 53 Rust tests)
 
 ## Future Extensions

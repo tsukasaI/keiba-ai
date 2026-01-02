@@ -32,6 +32,8 @@ anyhow = "1"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+colored = "2"
+indicatif = "0.17"
 
 # Data processing (for backtest)
 polars = { version = "0.45", features = ["parquet", "csv", "lazy"] }

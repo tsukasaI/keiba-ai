@@ -587,12 +587,14 @@ pub async fn run_live(
         },
         Browser, RateLimiter,
     };
+    use colored::Colorize;
+    use indicatif::{ProgressBar, ProgressStyle};
     use std::collections::HashMap;
 
-    eprintln!("=== Keiba-AI Live Prediction ===");
-    eprintln!("Race ID: {}", race_id);
-    eprintln!("Bet type: {}", bet_type);
-    eprintln!("EV threshold: {}", ev_threshold);
+    eprintln!("{}", "=== Keiba-AI Live Prediction ===".cyan().bold());
+    eprintln!("Race ID: {}", race_id.yellow());
+    eprintln!("Bet type: {}", bet_type.yellow());
+    eprintln!("EV threshold: {}", format!("{}", ev_threshold).yellow());
     eprintln!();
 
     // Initialize components
@@ -600,11 +602,11 @@ pub async fn run_live(
     let rate_limiter = RateLimiter::default_limiter();
 
     // Launch browser once and reuse for all fetches (performance optimization)
-    eprintln!("Launching browser...");
+    eprintln!("{}", "Launching browser...".dimmed());
     let browser = Browser::launch().await?;
 
     // Step 1: Fetch race card
-    eprintln!("Step 1: Fetching race card...");
+    eprintln!("{}", "Step 1: Fetching race card...".green());
     let race_card_html = if !force {
         if let Some(cached) = cache.get::<String>(CacheCategory::RaceCard, &race_id) {
             if verbose {
@@ -624,9 +626,11 @@ pub async fn run_live(
     let (race_info, entries) = RaceCardParser::parse(&race_card_html, &race_id)?;
     eprintln!(
         "  Race: {} ({} {}m)",
-        race_info.race_name, race_info.surface, race_info.distance
+        race_info.race_name.cyan(),
+        race_info.surface,
+        race_info.distance
     );
-    eprintln!("  Entries: {} horses", entries.len());
+    eprintln!("  Entries: {} horses", format!("{}", entries.len()).yellow());
 
     if entries.is_empty() {
         let _ = browser.close().await;
@@ -634,15 +638,25 @@ pub async fn run_live(
     }
 
     // Step 2: Fetch profiles (reusing browser)
-    eprintln!("Step 2: Fetching horse/jockey/trainer profiles...");
+    eprintln!("{}", "Step 2: Fetching horse/jockey/trainer profiles...".green());
 
     let mut horses: HashMap<String, HorseProfile> = HashMap::new();
     let mut jockeys: HashMap<String, JockeyProfile> = HashMap::new();
     let mut trainers: HashMap<String, TrainerProfile> = HashMap::new();
 
-    let total = entries.len();
+    // Create progress bar
+    let total = entries.len() as u64;
+    let pb = ProgressBar::new(total);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("  {spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("=>-"),
+    );
+
     for (idx, entry) in entries.iter().enumerate() {
-        eprint!("\r  [{}/{}] Processing {}...                    ", idx + 1, total, entry.horse_name);
+        pb.set_position(idx as u64);
+        pb.set_message(format!("{}", entry.horse_name));
 
         // Horse profile
         if !entry.horse_id.is_empty() {
@@ -724,19 +738,23 @@ pub async fn run_live(
             trainers.insert(entry.trainer_id.clone(), profile);
         }
     }
-    eprintln!();
+    pb.finish_with_message("Done");
 
     let _ = browser.close().await;
-    eprintln!("  Profiles loaded: {} horses, {} jockeys, {} trainers",
-        horses.len(), jockeys.len(), trainers.len());
+    eprintln!(
+        "  Profiles loaded: {} horses, {} jockeys, {} trainers",
+        format!("{}", horses.len()).cyan(),
+        format!("{}", jockeys.len()).cyan(),
+        format!("{}", trainers.len()).cyan()
+    );
 
     // Step 3: Fetch odds
-    eprintln!("Step 3: Fetching odds...");
+    eprintln!("{}", "Step 3: Fetching odds...".green());
     let odds_map = fetch_odds(&race_id, &bet_type).await?;
-    eprintln!("  Loaded {} odds combinations", odds_map.len());
+    eprintln!("  Loaded {} odds combinations", format!("{}", odds_map.len()).yellow());
 
     // Step 4: Build features
-    eprintln!("Step 4: Building features...");
+    eprintln!("{}", "Step 4: Building features...".green());
     let mut horse_features = Vec::new();
     let mut horse_ids = Vec::new();
 
@@ -751,7 +769,7 @@ pub async fn run_live(
     }
 
     // Step 5: Run model inference
-    eprintln!("Step 5: Running model inference...");
+    eprintln!("{}", "Step 5: Running model inference...".green());
     let config = AppConfig::load()?;
     let model = create_shared_model(&config.model.path)?;
 
@@ -772,7 +790,7 @@ pub async fn run_live(
     let calibrator = load_calibrator(&calibration_path);
     let win_probs = if calibrator.is_enabled() {
         if verbose {
-            eprintln!("Applying calibration...");
+            eprintln!("{}", "  Applying calibration...".dimmed());
         }
         calibrator.calibrate_map(&raw_win_probs)
     } else {
@@ -780,7 +798,7 @@ pub async fn run_live(
     };
 
     // Step 6: Calculate probabilities and EV
-    eprintln!("Step 6: Calculating probabilities and expected values...");
+    eprintln!("{}", "Step 6: Calculating probabilities and expected values...".green());
     let min_prob = config.betting.min_probability;
     let max_combos = config.betting.max_combinations;
 
@@ -799,14 +817,14 @@ pub async fn run_live(
 
     // Step 7: Output results
     eprintln!();
-    eprintln!("=== Results ===");
+    eprintln!("{}", "=== Results ===".cyan().bold());
     println!();
-    println!("Race: {} ({})", race_info.race_name, race_id);
-    println!("Bet type: {}", bet_type);
+    println!("{}: {} ({})", "Race".bold(), race_info.race_name.cyan(), race_id);
+    println!("{}: {}", "Bet type".bold(), bet_type.yellow());
     println!();
 
     // Print win probabilities
-    println!("Win Probabilities:");
+    println!("{}", "Win Probabilities:".bold());
     let mut sorted_probs: Vec<_> = win_probs.iter().collect();
     sorted_probs.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     for (id, prob) in sorted_probs.iter().take(5) {
@@ -815,23 +833,30 @@ pub async fn run_live(
             .find(|e| &e.horse_id == *id)
             .map(|e| e.horse_name.as_str())
             .unwrap_or("Unknown");
-        println!("  {:>6}: {:.2}% - {}", id, *prob * 100.0, name);
+        println!("  {:>6}: {}% - {}", id, format!("{:.2}", *prob * 100.0).yellow(), name);
     }
     println!();
 
     // Print recommended bets
-    println!("Recommended Bets (EV > {}):", ev_threshold);
+    println!("{} (EV > {}):", "Recommended Bets".bold(), format!("{}", ev_threshold).yellow());
     if results.is_empty() {
-        println!("  No bets meet the EV threshold");
+        println!("  {}", "No bets meet the EV threshold".dimmed());
     } else {
         for (i, (combo, prob, odds, ev)) in results.iter().take(10).enumerate() {
+            let ev_str = if *ev >= 1.5 {
+                format!("{:.3}", ev).green().bold().to_string()
+            } else if *ev >= 1.2 {
+                format!("{:.3}", ev).yellow().to_string()
+            } else {
+                format!("{:.3}", ev).normal().to_string()
+            };
             println!(
-                "  {:2}. {} - Prob: {:.4}%, Odds: {:.1}, EV: {:.3}",
+                "  {:2}. {} - Prob: {}%, Odds: {}, EV: {}",
                 i + 1,
-                combo,
-                prob * 100.0,
-                odds,
-                ev
+                combo.cyan(),
+                format!("{:.4}", prob * 100.0).yellow(),
+                format!("{:.1}", odds).normal(),
+                ev_str,
             );
         }
     }
@@ -855,7 +880,7 @@ pub async fn run_live(
         });
         std::fs::write(&out_path, serde_json::to_string_pretty(&output_data)?)?;
         eprintln!();
-        eprintln!("Results saved to: {}", out_path.display());
+        eprintln!("{} {}", "Results saved to:".green(), out_path.display().to_string().cyan());
     }
 
     Ok(())

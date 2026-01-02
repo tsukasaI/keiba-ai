@@ -5,7 +5,10 @@ Model retraining pipeline for Keiba-AI.
 Orchestrates: Feature engineering → Training → Validation → Export
 
 Usage:
-    python scripts/retrain.py                    # Full pipeline
+    python scripts/retrain.py                    # Full pipeline (LightGBM)
+    python scripts/retrain.py --model-type catboost   # Use CatBoost model
+    python scripts/retrain.py --model-type ensemble   # Use ensemble model
+    python scripts/retrain.py --optimize         # Run hyperparameter optimization
     python scripts/retrain.py --skip-features    # Skip feature engineering
     python scripts/retrain.py --validate-only    # Only run validation
     python scripts/retrain.py --export-only      # Only run export (ONNX + calibration)
@@ -17,7 +20,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -31,8 +34,14 @@ from src.models.config import FEATURES, TARGET_COL, DATE_COL, RACE_ID_COL
 from src.models.data_loader import RaceDataLoader
 from src.models.exacta_calculator import ExactaCalculator
 from src.models.position_model import PositionProbabilityModel
+from src.models.xgboost_model import XGBoostPositionModel
+from src.models.catboost_model import CatBoostPositionModel
+from src.models.ensemble import EnsembleModel
 from src.models.trainer import ModelTrainer
 from src.preprocessing.feature_engineering import FeatureEngineer
+
+# Type alias for all model types
+ModelType = Union[PositionProbabilityModel, XGBoostPositionModel, CatBoostPositionModel, EnsembleModel]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,6 +60,46 @@ CALIBRATION_PATH = MODELS_DIR / "calibration.json"
 
 # Baseline for comparison
 BASELINE_ROI = 19.3
+
+# Global model type setting
+CURRENT_MODEL_TYPE = "lgbm"
+
+
+def get_model_class(model_type: str):
+    """Get the model class for the specified type.
+
+    Args:
+        model_type: One of 'lgbm', 'xgb', 'catboost', 'ensemble'
+
+    Returns:
+        Model class
+    """
+    if model_type == "lgbm":
+        return PositionProbabilityModel
+    elif model_type == "xgb":
+        return XGBoostPositionModel
+    elif model_type == "catboost":
+        return CatBoostPositionModel
+    elif model_type == "ensemble":
+        return EnsembleModel
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
+
+
+def create_model(model_type: str, params: dict = None) -> ModelType:
+    """Create a model instance of the specified type.
+
+    Args:
+        model_type: One of 'lgbm', 'xgb', 'catboost', 'ensemble'
+        params: Optional hyperparameters
+
+    Returns:
+        Model instance
+    """
+    model_class = get_model_class(model_type)
+    if params:
+        return model_class(params=params)
+    return model_class()
 
 
 def step_banner(step_num: int, title: str) -> None:
@@ -81,13 +130,19 @@ def run_feature_engineering() -> bool:
     return True
 
 
-def run_training() -> bool:
-    """Step 2: Train model with cross-validation."""
-    step_banner(2, "MODEL TRAINING")
+def run_training(model_type: str = "lgbm", params: dict = None) -> bool:
+    """Step 2: Train model with cross-validation.
+
+    Args:
+        model_type: Model type ('lgbm', 'xgb', 'catboost', 'ensemble')
+        params: Optional hyperparameters from optimization
+    """
+    step_banner(2, f"MODEL TRAINING ({model_type.upper()})")
 
     start = datetime.now()
     logger.info(f"Started at {start.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Using {len(FEATURES)} features")
+    logger.info(f"Model type: {model_type}")
 
     # Load data
     loader = RaceDataLoader()
@@ -95,40 +150,119 @@ def run_training() -> bool:
     df = df[df[TARGET_COL].notna()]
     logger.info(f"Loaded {len(df):,} samples")
 
-    # Train with cross-validation
-    trainer = ModelTrainer(n_splits=5)
-    models, cv_results = trainer.train_with_cv(
-        df,
-        feature_cols=FEATURES,
-        target_col=TARGET_COL,
-    )
+    # Prepare data
+    df = df.copy()
+    df["_date"] = pd.to_datetime(df[DATE_COL], errors="coerce")
+    df = df.dropna(subset=["_date"])
+    df = df.sort_values("_date")
 
-    # Print CV summary
-    trainer.summarize_cv_results()
+    # Split: last 3 months for test
+    max_date = df["_date"].max()
+    test_start = max_date - pd.DateOffset(months=3)
+    train_df = df[df["_date"] < test_start].copy()
+    test_df = df[df["_date"] >= test_start].copy()
 
-    # Train final model
-    final_model, test_df = trainer.train_final_model(
-        df,
-        feature_cols=FEATURES,
-        target_col=TARGET_COL,
-    )
+    # Use last 20% of training data for validation (early stopping)
+    split_idx = int(len(train_df) * 0.8)
+    train_fit_df = train_df.iloc[:split_idx]
+    val_df = train_df.iloc[split_idx:]
+
+    X_train = train_fit_df[FEATURES].values
+    y_train = (train_fit_df[TARGET_COL].clip(1, 18) - 1).astype(int).values
+    X_val = val_df[FEATURES].values
+    y_val = (val_df[TARGET_COL].clip(1, 18) - 1).astype(int).values
+
+    logger.info(f"Train samples: {len(X_train):,}")
+    logger.info(f"Validation samples: {len(X_val):,}")
+    logger.info(f"Test samples: {len(test_df):,}")
+
+    # Create and train model
+    if model_type == "ensemble":
+        # Ensemble trains multiple models internally
+        final_model = EnsembleModel(strategy="weighted_average")
+        final_model.train(
+            X_train, y_train,
+            X_val, y_val,
+            feature_names=FEATURES,
+        )
+        logger.info(f"Ensemble info: {final_model.get_model_info()}")
+    else:
+        # Single model training
+        final_model = create_model(model_type, params)
+        final_model.train(
+            X_train, y_train,
+            X_val, y_val,
+            feature_names=FEATURES,
+        )
 
     # Save model
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    model_path = MODELS_DIR / f"position_model_{model_type}.pkl"
+    final_model.save(model_path)
+    logger.info(f"Model saved to: {model_path}")
+
+    # Also save as default path for compatibility
     final_model.save(MODEL_PKL_PATH)
-    logger.info(f"Model saved to: {MODEL_PKL_PATH}")
+    logger.info(f"Model also saved to: {MODEL_PKL_PATH}")
 
     # Print feature importance
     print("\n" + "-" * 60)
     print("TOP 15 FEATURES")
     print("-" * 60)
-    importance = final_model.get_feature_importance()
-    print(importance.head(15).to_string(index=False))
+    try:
+        if hasattr(final_model, 'get_feature_importance'):
+            importance = final_model.get_feature_importance()
+        else:
+            importance = final_model.feature_importance()
+        print(importance.head(15).to_string(index=False))
+    except Exception as e:
+        logger.warning(f"Could not get feature importance: {e}")
 
     elapsed = (datetime.now() - start).total_seconds()
     logger.info(f"Completed in {elapsed:.1f} seconds")
 
     return True
+
+
+def run_optimization(model_type: str = "lgbm", n_trials: int = 50) -> dict:
+    """Run hyperparameter optimization.
+
+    Args:
+        model_type: Model type to optimize
+        n_trials: Number of optimization trials
+
+    Returns:
+        Best hyperparameters found
+    """
+    step_banner(0, f"HYPERPARAMETER OPTIMIZATION ({model_type.upper()})")
+
+    start = datetime.now()
+    logger.info(f"Started at {start.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Running {n_trials} optimization trials")
+
+    from src.models.optimizer import ModelOptimizer
+
+    optimizer = ModelOptimizer(
+        model_type=model_type,
+        n_trials=n_trials,
+    )
+
+    best_params = optimizer.optimize()
+
+    # Save best params
+    params_path = MODELS_DIR / f"best_params_{model_type}.json"
+    optimizer.save_best_params(params_path)
+
+    elapsed = (datetime.now() - start).total_seconds()
+    logger.info(f"Optimization completed in {elapsed:.1f} seconds")
+
+    print("\n" + "-" * 60)
+    print("BEST HYPERPARAMETERS")
+    print("-" * 60)
+    for key, value in best_params.items():
+        print(f"  {key}: {value}")
+
+    return optimizer.get_best_params()
 
 
 def run_validation() -> Tuple[dict, List[Dict]]:
@@ -403,13 +537,36 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python scripts/retrain.py                    # Full pipeline
-  python scripts/retrain.py --skip-features    # Skip feature engineering
-  python scripts/retrain.py --validate-only    # Only run validation
-  python scripts/retrain.py --export-only      # Only run ONNX/calibration export
+  python scripts/retrain.py                         # Full pipeline (LightGBM)
+  python scripts/retrain.py --model-type catboost   # Use CatBoost model
+  python scripts/retrain.py --model-type xgb        # Use XGBoost model
+  python scripts/retrain.py --model-type ensemble   # Use ensemble (LightGBM+XGBoost+CatBoost)
+  python scripts/retrain.py --optimize              # Run hyperparameter optimization first
+  python scripts/retrain.py --optimize --n-trials 100  # More optimization trials
+  python scripts/retrain.py --skip-features         # Skip feature engineering
+  python scripts/retrain.py --validate-only         # Only run validation
+  python scripts/retrain.py --export-only           # Only run ONNX/calibration export
         """,
     )
 
+    parser.add_argument(
+        "--model-type",
+        type=str,
+        choices=["lgbm", "xgb", "catboost", "ensemble"],
+        default="lgbm",
+        help="Model type to train (default: lgbm)",
+    )
+    parser.add_argument(
+        "--optimize",
+        action="store_true",
+        help="Run hyperparameter optimization before training",
+    )
+    parser.add_argument(
+        "--n-trials",
+        type=int,
+        default=50,
+        help="Number of optimization trials (default: 50)",
+    )
     parser.add_argument(
         "--skip-features",
         action="store_true",
@@ -432,11 +589,15 @@ Examples:
     print("KEIBA-AI MODEL RETRAINING PIPELINE")
     print("=" * 60)
     print(f"Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Model type: {args.model_type}")
     print(f"Features: {len(FEATURES)}")
+    if args.optimize:
+        print(f"Optimization: {args.n_trials} trials")
 
     start_time = datetime.now()
     validation_results = {}
     calibration_predictions = []
+    optimized_params = None
 
     try:
         if args.validate_only:
@@ -449,6 +610,10 @@ Examples:
         else:
             # Full or partial pipeline
 
+            # Step 0: Hyperparameter optimization (optional)
+            if args.optimize and args.model_type != "ensemble":
+                optimized_params = run_optimization(args.model_type, args.n_trials)
+
             # Step 1: Feature engineering
             if not args.skip_features:
                 if not run_feature_engineering():
@@ -457,15 +622,25 @@ Examples:
                 logger.info("Skipping feature engineering (--skip-features)")
 
             # Step 2: Training
-            if not run_training():
+            if not run_training(args.model_type, optimized_params):
                 sys.exit(1)
 
             # Step 3: Validation (also collects calibration data)
             validation_results, calibration_predictions = run_validation()
 
             # Step 4: Export with fitted calibration
-            if not run_export(calibration_predictions):
-                sys.exit(1)
+            # Note: ONNX export only works for LightGBM
+            if args.model_type == "lgbm":
+                if not run_export(calibration_predictions):
+                    sys.exit(1)
+            else:
+                logger.warning(f"ONNX export not supported for {args.model_type}, skipping")
+                # Still export calibration
+                if calibration_predictions:
+                    calibration_config = fit_calibration(calibration_predictions, method="temperature")
+                    with open(CALIBRATION_PATH, "w") as f:
+                        json.dump(calibration_config, f, indent=2)
+                    logger.info(f"Calibration config saved to: {CALIBRATION_PATH}")
 
         # Print summary
         if validation_results:

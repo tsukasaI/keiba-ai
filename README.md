@@ -243,9 +243,32 @@ cd src/api && cargo test -- --nocapture
 | `wide.rs` | 4 | Wide probability calculation |
 | `model.rs` | 1 | Feature names |
 
+## Model Retraining
+
+```bash
+# Full pipeline: features → training → validation → export
+python scripts/retrain.py
+
+# Use different model types
+python scripts/retrain.py --model-type catboost   # CatBoost
+python scripts/retrain.py --model-type ensemble   # Ensemble (LightGBM+XGBoost+CatBoost)
+
+# Hyperparameter optimization
+python scripts/retrain.py --optimize --n-trials 100
+```
+
+## Implemented Features
+
+- All 5 bet types (Exacta, Trifecta, Quinella, Trio, Wide)
+- Probability calibration (temperature scaling, binning)
+- Walk-forward backtesting (+19.3% ROI)
+- Multiple model types (LightGBM, CatBoost, XGBoost, Ensemble)
+- Hyperparameter optimization with Optuna
+- Live race scraper with colored CLI and progress bars
+- Calibration in Rust CLI and API
+
 ## Future Extensions
 
-- Calibration integration in Rust API `/predict` endpoint
 - Regional racing (NAR) support
 - JRA-VAN integration (real-time predictions with pre-race odds)
 - Production deployment (Docker, monitoring)
