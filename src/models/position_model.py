@@ -42,6 +42,7 @@ class PositionProbabilityModel:
         y_train: pd.Series,
         X_val: Optional[pd.DataFrame] = None,
         y_val: Optional[pd.Series] = None,
+        feature_names: Optional[List[str]] = None,
     ) -> "PositionProbabilityModel":
         """
         Train the position prediction model.
@@ -51,11 +52,12 @@ class PositionProbabilityModel:
             y_train: Training labels (0-indexed positions)
             X_val: Validation features (optional)
             y_val: Validation labels (optional)
+            feature_names: Feature names (optional, defaults to X_train columns)
 
         Returns:
             self
         """
-        self.feature_names = list(X_train.columns)
+        self.feature_names = feature_names if feature_names else list(X_train.columns)
 
         # Create LightGBM datasets
         train_data = lgb.Dataset(X_train, label=y_train)

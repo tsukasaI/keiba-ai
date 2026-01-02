@@ -62,7 +62,7 @@ class ModelOptimizer:
         """Load and prepare data for optimization."""
         try:
             self.data_loader = RaceDataLoader()
-            df = self.data_loader.load()
+            df = self.data_loader.load_features()
 
             if df is None or len(df) == 0:
                 logger.error("No data loaded")
@@ -161,10 +161,10 @@ class ModelOptimizer:
         Returns:
             Validation log loss (to minimize)
         """
-        if self.model_type == "lightgbm":
+        if self.model_type in ("lightgbm", "lgbm"):
             params = self._suggest_lgbm_params(trial)
         else:
-            raise ValueError(f"Unknown model type: {self.model_type}")
+            raise ValueError(f"Optimization not supported for model type: {self.model_type}. Only 'lgbm'/'lightgbm' is supported.")
 
         log_loss = self._evaluate_model(params)
 
