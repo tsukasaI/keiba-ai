@@ -333,7 +333,7 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 - ✅ Multiple model types (LightGBM, CatBoost, XGBoost, Ensemble)
 - ✅ Hyperparameter optimization with Optuna (`--optimize` flag)
 - ✅ Colored CLI output with progress bars
-- ✅ Comprehensive test suite (213 Python + 61 Rust tests)
+- ✅ Comprehensive test suite (213 Python + 72 Rust tests)
 
 ## Known Issues & Limitations
 

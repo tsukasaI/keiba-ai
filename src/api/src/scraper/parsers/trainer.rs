@@ -130,3 +130,68 @@ impl TrainerParser {
         text.contains(&current_year)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // HTML fixture matching netkeiba format: 年度, 順位, 1着, 2着, 3着, 着外, 出走数 (7 columns)
+    const SAMPLE_HTML: &str = r#"<!DOCTYPE html>
+<html>
+<body>
+<div class="db_head_name"><h1>友道康夫</h1></div>
+<div class="Name_En">Yasuo Tomomichi</div>
+<table class="ResultsByYears">
+  <thead>
+    <tr><th>年度</th><th>順位</th><th>1着</th><th>2着</th><th>3着</th><th>着外</th><th>出走数</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>通算</td><td>-</td><td>850</td><td>720</td><td>650</td><td>2780</td><td>5000</td></tr>
+    <tr><td>2025</td><td>5</td><td>42</td><td>35</td><td>28</td><td>95</td><td>200</td></tr>
+  </tbody>
+</table>
+</body>
+</html>"#;
+
+    #[test]
+    fn test_parse_trainer_profile() {
+        let profile = TrainerParser::parse(SAMPLE_HTML, "01567").unwrap();
+
+        assert_eq!(profile.trainer_id, "01567");
+        // Name_En selector is checked first and returns English name
+        assert!(profile.name.contains("Tomomichi") || profile.name.contains("友道"));
+        assert_eq!(profile.total_races, 5000);
+        assert_eq!(profile.wins, 850);
+        assert_eq!(profile.seconds, 720);
+        assert_eq!(profile.thirds, 650);
+    }
+
+    #[test]
+    fn test_parse_trainer_rates() {
+        let profile = TrainerParser::parse(SAMPLE_HTML, "01567").unwrap();
+
+        // Win rate = 850 / 5000 = 0.17
+        let expected_win_rate = 850.0 / 5000.0;
+        assert!((profile.win_rate - expected_win_rate).abs() < 0.001);
+
+        // Place rate = (850 + 720 + 650) / 5000 = 0.444
+        let expected_place_rate = (850.0 + 720.0 + 650.0) / 5000.0;
+        assert!((profile.place_rate - expected_place_rate).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_parse_empty_html() {
+        let profile = TrainerParser::parse("<html></html>", "test").unwrap();
+        assert_eq!(profile.trainer_id, "test");
+        assert_eq!(profile.total_races, 0);
+        assert_eq!(profile.win_rate, 0.0);
+    }
+
+    #[test]
+    fn test_clean_name() {
+        assert_eq!(
+            TrainerParser::clean_name("友道康夫 (トモミチヤスオ)"),
+            "友道康夫"
+        );
+    }
+}

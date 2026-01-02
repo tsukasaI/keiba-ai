@@ -146,6 +146,24 @@ impl JockeyParser {
 mod tests {
     use super::*;
 
+    // HTML fixture matching netkeiba format: 年度, 順位, 1着, 2着, 3着, 着外, 騎乗数 (7 columns)
+    const SAMPLE_HTML: &str = r#"<!DOCTYPE html>
+<html>
+<body>
+<div class="db_head_name"><h1>武豊</h1></div>
+<div class="Name_En">Yutaka Take</div>
+<table class="ResultsByYears">
+  <thead>
+    <tr><th>年度</th><th>順位</th><th>1着</th><th>2着</th><th>3着</th><th>着外</th><th>騎乗数</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>通算</td><td>-</td><td>4500</td><td>3200</td><td>2800</td><td>10500</td><td>21000</td></tr>
+    <tr><td>2025</td><td>1</td><td>85</td><td>70</td><td>55</td><td>190</td><td>400</td></tr>
+  </tbody>
+</table>
+</body>
+</html>"#;
+
     #[test]
     fn test_clean_name() {
         assert_eq!(
@@ -156,5 +174,40 @@ mod tests {
             JockeyParser::clean_name("山田太郎のプロフィール - netkeiba"),
             "山田太郎"
         );
+    }
+
+    #[test]
+    fn test_parse_jockey_profile() {
+        let profile = JockeyParser::parse(SAMPLE_HTML, "01234").unwrap();
+
+        assert_eq!(profile.jockey_id, "01234");
+        // Name_En selector is checked first and returns English name
+        assert!(profile.name.contains("Take") || profile.name.contains("武豊"));
+        assert_eq!(profile.total_races, 21000);
+        assert_eq!(profile.wins, 4500);
+        assert_eq!(profile.seconds, 3200);
+        assert_eq!(profile.thirds, 2800);
+    }
+
+    #[test]
+    fn test_parse_jockey_rates() {
+        let profile = JockeyParser::parse(SAMPLE_HTML, "01234").unwrap();
+
+        // Win rate = 4500 / 21000 = 0.214...
+        // Note: rates are calculated after parsing
+        let expected_win_rate = 4500.0 / 21000.0;
+        assert!((profile.win_rate - expected_win_rate).abs() < 0.001);
+
+        // Place rate = (4500 + 3200 + 2800) / 21000 = 0.5
+        let expected_place_rate = (4500.0 + 3200.0 + 2800.0) / 21000.0;
+        assert!((profile.place_rate - expected_place_rate).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_parse_empty_html() {
+        let profile = JockeyParser::parse("<html></html>", "test").unwrap();
+        assert_eq!(profile.jockey_id, "test");
+        assert_eq!(profile.total_races, 0);
+        assert_eq!(profile.win_rate, 0.0);
     }
 }

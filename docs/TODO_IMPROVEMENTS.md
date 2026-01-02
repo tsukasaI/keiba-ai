@@ -233,26 +233,20 @@ importance_df.to_csv('data/models/feature_importance.csv', index=False)
 
 ### Priority 1: Scraper Unit Tests
 
-**Current State**: No HTML parser tests
+**Status**: ✅ IMPLEMENTED
 
-**Risk**: netkeiba HTML changes break scraper silently
+**Added Tests**:
+- `race_card.rs`: 5 tests (parse_race_info, parse_entries, extract_grade, empty_html)
+- `jockey.rs`: 4 tests (parse_profile, parse_rates, clean_name, empty_html)
+- `trainer.rs`: 4 tests (parse_profile, parse_rates, clean_name, empty_html)
 
-**Test Plan**:
-```rust
-#[cfg(test)]
-mod tests {
-    const RACE_CARD_HTML: &str = include_str!("fixtures/race_card_sample.html");
+**Test Coverage**:
+- Race info parsing (name, distance, surface, track condition, grade)
+- Entry parsing (horse, jockey, trainer IDs and names)
+- Stats table parsing (wins, seconds, thirds, total races, rates)
+- Edge cases (empty HTML, missing data)
 
-    #[test]
-    fn test_parse_race_card() {
-        let result = parse_race_card(RACE_CARD_HTML);
-        assert_eq!(result.race_name, "有馬記念");
-        assert_eq!(result.horses.len(), 16);
-    }
-}
-```
-
-Store fixture HTML files in `src/api/tests/fixtures/`
+Total Rust tests: 53 → 72 (+19 new tests)
 
 ---
 

@@ -334,3 +334,110 @@ impl RaceCardParser {
         Some(entry)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_HTML: &str = r#"<!DOCTYPE html>
+<html>
+<body>
+<div class="RaceNum">11R</div>
+<div class="RaceName">有馬記念</div>
+<div class="RaceData01">2025/12/28 芝2500m (右) <span>G1</span></div>
+<div class="RaceData02"><span>第5回中山8日目</span></div>
+<div class="Item03">良</div>
+<table class="Shutuba_Table">
+  <tbody>
+    <tr class="HorseList">
+      <td class="Waku"><span>1</span></td>
+      <td class="Umaban">1</td>
+      <td class="HorseInfo">
+        <a href="/horse/2019104567/" title="ドウデュース">ドウデュース</a>
+        <span class="Age">牡5</span>
+      </td>
+      <td class="Weight">57.0</td>
+      <td class="Jockey"><a href="/jockey/01234/">武豊</a></td>
+      <td class="Trainer"><a href="/trainer/01567/">友道康夫</a></td>
+      <td class="HorseWeight">486(-2)</td>
+      <td><span id="odds-1">2.1</span></td>
+      <td><span id="ninki-1">1</span></td>
+    </tr>
+    <tr class="HorseList">
+      <td class="Waku"><span>2</span></td>
+      <td class="Umaban">2</td>
+      <td class="HorseInfo">
+        <a href="/horse/2020105678/" title="ジャスティンパレス">ジャスティンパレス</a>
+        <span class="Age">牡4</span>
+      </td>
+      <td class="Weight">57.0</td>
+      <td class="Jockey"><a href="/jockey/01235/">C.ルメール</a></td>
+      <td class="Trainer"><a href="/trainer/01568/">杉山晴紀</a></td>
+      <td class="HorseWeight">492(+4)</td>
+      <td><span id="odds-2">3.5</span></td>
+      <td><span id="ninki-2">2</span></td>
+    </tr>
+  </tbody>
+</table>
+</body>
+</html>"#;
+
+    #[test]
+    fn test_parse_race_info() {
+        let (info, _) = RaceCardParser::parse(SAMPLE_HTML, "202506050811").unwrap();
+
+        assert_eq!(info.race_id, "202506050811");
+        assert_eq!(info.race_name, "有馬記念");
+        assert_eq!(info.race_number, 11);
+        assert_eq!(info.distance, 2500);
+        assert_eq!(info.surface, "turf");
+        assert_eq!(info.track_condition, "良");
+        assert_eq!(info.date, "2025-12-28");
+        assert_eq!(info.grade, "G1");
+    }
+
+    #[test]
+    fn test_parse_entries() {
+        let (_, entries) = RaceCardParser::parse(SAMPLE_HTML, "202506050811").unwrap();
+
+        assert_eq!(entries.len(), 2);
+
+        let entry1 = &entries[0];
+        assert_eq!(entry1.post_position, 1);
+        assert_eq!(entry1.horse_id, "2019104567");
+        assert_eq!(entry1.horse_name, "ドウデュース");
+        assert_eq!(entry1.horse_age, 5);
+        assert_eq!(entry1.horse_sex, "牡");
+        // Weight carried should be 57.0
+        assert!((entry1.weight_carried - 57.0).abs() < 0.1);
+        // Jockey/trainer info
+        assert_eq!(entry1.jockey_id, "01234");
+        assert_eq!(entry1.jockey_name, "武豊");
+        assert_eq!(entry1.trainer_id, "01567");
+        assert_eq!(entry1.trainer_name, "友道康夫");
+        assert_eq!(entry1.win_odds, Some(2.1));
+        assert_eq!(entry1.popularity, Some(1));
+
+        let entry2 = &entries[1];
+        assert_eq!(entry2.post_position, 2);
+        assert_eq!(entry2.horse_name, "ジャスティンパレス");
+        assert_eq!(entry2.horse_age, 4);
+    }
+
+    #[test]
+    fn test_extract_grade() {
+        assert_eq!(RaceCardParser::extract_grade("有馬記念（G1）"), "G1");
+        assert_eq!(RaceCardParser::extract_grade("日経賞（G2）"), "G2");
+        assert_eq!(RaceCardParser::extract_grade("オープン"), "OP");
+        assert_eq!(RaceCardParser::extract_grade("新馬"), "");
+    }
+
+    #[test]
+    fn test_empty_html() {
+        let result = RaceCardParser::parse("<html></html>", "test123");
+        assert!(result.is_ok());
+        let (info, entries) = result.unwrap();
+        assert_eq!(info.race_id, "test123");
+        assert!(entries.is_empty());
+    }
+}

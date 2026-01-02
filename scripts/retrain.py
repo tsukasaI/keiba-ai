@@ -205,16 +205,33 @@ def run_training(model_type: str = "lgbm", params: dict = None) -> bool:
     final_model.save(MODEL_PKL_PATH)
     logger.info(f"Model also saved to: {MODEL_PKL_PATH}")
 
-    # Print feature importance
+    # Export and print feature importance
     print("\n" + "-" * 60)
-    print("TOP 15 FEATURES")
+    print("FEATURE IMPORTANCE")
     print("-" * 60)
     try:
         if hasattr(final_model, 'get_feature_importance'):
             importance = final_model.get_feature_importance()
         else:
             importance = final_model.feature_importance()
+
+        # Save to CSV
+        importance_path = MODELS_DIR / f"feature_importance_{model_type}.csv"
+        importance.to_csv(importance_path, index=False)
+        logger.info(f"Feature importance saved to: {importance_path}")
+
+        # Also save as default name for compatibility
+        default_importance_path = MODELS_DIR / "feature_importance.csv"
+        importance.to_csv(default_importance_path, index=False)
+
+        # Print top 15
+        print(f"\nTop 15 features (full list in {importance_path.name}):")
         print(importance.head(15).to_string(index=False))
+
+        # Print summary stats
+        total_importance = importance['importance'].sum()
+        top_10_importance = importance.head(10)['importance'].sum()
+        print(f"\nTop 10 features account for {top_10_importance/total_importance*100:.1f}% of total importance")
     except Exception as e:
         logger.warning(f"Could not get feature importance: {e}")
 
