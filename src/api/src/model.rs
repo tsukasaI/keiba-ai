@@ -23,10 +23,24 @@ pub struct PositionModel {
 impl PositionModel {
     /// Load ONNX model from file.
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+
+        // Validate file exists
+        if !path.exists() {
+            anyhow::bail!(
+                "Model file not found: '{}'\n\
+                 Run 'python scripts/retrain.py --export-only' to export ONNX model",
+                path.display()
+            );
+        }
+        if !path.is_file() {
+            anyhow::bail!("Model path is not a file: '{}'", path.display());
+        }
+
         let session = Session::builder()?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .with_intra_threads(4)?
-            .commit_from_file(path.as_ref())
+            .commit_from_file(path)
             .context("Failed to load ONNX model")?;
 
         Ok(Self {

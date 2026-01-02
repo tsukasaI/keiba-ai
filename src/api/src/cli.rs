@@ -5,6 +5,92 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Validate race ID format (YYYYRRCCNNDD)
+///
+/// Format: 12 digits where:
+/// - YYYY: Year (2019-2030)
+/// - RR: Racecourse code (01-10)
+/// - CC: Meeting number (01-12)
+/// - NN: Day number (01-12)
+/// - DD: Race number (01-12)
+pub fn validate_race_id(race_id: &str) -> Result<(), String> {
+    // Check length
+    if race_id.len() != 12 {
+        return Err(format!(
+            "Race ID must be 12 digits, got {} digits: '{}'",
+            race_id.len(),
+            race_id
+        ));
+    }
+
+    // Check all digits
+    if !race_id.chars().all(|c| c.is_ascii_digit()) {
+        return Err(format!(
+            "Race ID must contain only digits: '{}'",
+            race_id
+        ));
+    }
+
+    // Parse and validate components
+    let year: u32 = race_id[0..4].parse().unwrap();
+    let racecourse: u32 = race_id[4..6].parse().unwrap();
+    let meeting: u32 = race_id[6..8].parse().unwrap();
+    let day: u32 = race_id[8..10].parse().unwrap();
+    let race: u32 = race_id[10..12].parse().unwrap();
+
+    if year < 2019 || year > 2030 {
+        return Err(format!(
+            "Year must be 2019-2030, got {}: '{}'",
+            year, race_id
+        ));
+    }
+
+    if racecourse < 1 || racecourse > 10 {
+        return Err(format!(
+            "Racecourse code must be 01-10, got {:02}: '{}'\n\
+             Codes: 01=Sapporo, 02=Hakodate, 03=Fukushima, 04=Niigata, 05=Tokyo, \
+             06=Nakayama, 07=Chukyo, 08=Kyoto, 09=Hanshin, 10=Kokura",
+            racecourse, race_id
+        ));
+    }
+
+    if meeting < 1 || meeting > 12 {
+        return Err(format!(
+            "Meeting number must be 01-12, got {:02}: '{}'",
+            meeting, race_id
+        ));
+    }
+
+    if day < 1 || day > 12 {
+        return Err(format!(
+            "Day number must be 01-12, got {:02}: '{}'",
+            day, race_id
+        ));
+    }
+
+    if race < 1 || race > 12 {
+        return Err(format!(
+            "Race number must be 01-12, got {:02}: '{}'",
+            race, race_id
+        ));
+    }
+
+    Ok(())
+}
+
+/// Validate bet type
+pub fn validate_bet_type(bet_type: &str) -> Result<(), String> {
+    let valid_types = ["exacta", "trifecta", "quinella", "trio", "wide", "all"];
+    if !valid_types.contains(&bet_type.to_lowercase().as_str()) {
+        return Err(format!(
+            "Invalid bet type '{}'. Valid types: {}",
+            bet_type,
+            valid_types.join(", ")
+        ));
+    }
+    Ok(())
+}
+
 use crate::backtest::{load_race_data, print_backtest_table, Backtester, BetType, OddsLookup};
 use crate::calibration::Calibrator;
 use crate::config::AppConfig;
@@ -588,8 +674,19 @@ pub async fn run_live(
         Browser, RateLimiter,
     };
     use colored::Colorize;
+    use futures::stream::{self, StreamExt};
     use indicatif::{ProgressBar, ProgressStyle};
     use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    // Input validation
+    if let Err(e) = validate_race_id(&race_id) {
+        anyhow::bail!("Invalid race ID: {}", e);
+    }
+    if let Err(e) = validate_bet_type(&bet_type) {
+        anyhow::bail!("Invalid bet type: {}", e);
+    }
 
     eprintln!("{}", "=== Keiba-AI Live Prediction ===".cyan().bold());
     eprintln!("Race ID: {}", race_id.yellow());
@@ -637,110 +734,212 @@ pub async fn run_live(
         anyhow::bail!("No entries found in race card");
     }
 
-    // Step 2: Fetch profiles (reusing browser)
+    // Step 2: Fetch profiles (parallel fetching for performance)
     eprintln!("{}", "Step 2: Fetching horse/jockey/trainer profiles...".green());
 
     let mut horses: HashMap<String, HorseProfile> = HashMap::new();
     let mut jockeys: HashMap<String, JockeyProfile> = HashMap::new();
     let mut trainers: HashMap<String, TrainerProfile> = HashMap::new();
 
-    // Create progress bar
-    let total = entries.len() as u64;
-    let pb = ProgressBar::new(total);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("  {spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-            .unwrap()
-            .progress_chars("=>-"),
-    );
+    // Collect unique IDs to fetch, checking cache first
+    #[derive(Debug, Clone)]
+    enum FetchTask {
+        Horse(String),
+        Jockey(String),
+        Trainer(String),
+    }
 
-    for (idx, entry) in entries.iter().enumerate() {
-        pb.set_position(idx as u64);
-        pb.set_message(format!("{}", entry.horse_name));
+    let mut fetch_tasks: Vec<FetchTask> = Vec::new();
+    let mut seen_jockeys: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_trainers: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        // Horse profile
+    for entry in &entries {
+        // Check horse cache
         if !entry.horse_id.is_empty() {
-            let profile = if !force {
-                if let Some(cached) = cache.get::<HorseProfile>(CacheCategory::Horse, &entry.horse_id)
-                {
-                    if verbose { eprint!(" [horse:cache]"); }
-                    cached
+            if !force {
+                if let Some(cached) = cache.get::<HorseProfile>(CacheCategory::Horse, &entry.horse_id) {
+                    horses.insert(entry.horse_id.clone(), cached);
                 } else {
-                    if verbose { eprint!(" [horse:fetch]"); }
-                    rate_limiter.acquire().await;
-                    let url = crate::scraper::horse_url(&entry.horse_id);
-                    let html = browser.fetch_page(&url).await?;
-                    let profile = HorseParser::parse(&html, &entry.horse_id)?;
-                    let _ = cache.set(CacheCategory::Horse, &entry.horse_id, &profile);
-                    profile
+                    fetch_tasks.push(FetchTask::Horse(entry.horse_id.clone()));
                 }
             } else {
-                if verbose { eprint!(" [horse:force]"); }
-                rate_limiter.acquire().await;
-                let url = crate::scraper::horse_url(&entry.horse_id);
-                let html = browser.fetch_page(&url).await?;
-                HorseParser::parse(&html, &entry.horse_id)?
-            };
-            horses.insert(entry.horse_id.clone(), profile);
+                fetch_tasks.push(FetchTask::Horse(entry.horse_id.clone()));
+            }
         }
 
-        // Jockey profile
-        if !entry.jockey_id.is_empty() && !jockeys.contains_key(&entry.jockey_id) {
-            let profile = if !force {
-                if let Some(cached) =
-                    cache.get::<JockeyProfile>(CacheCategory::Jockey, &entry.jockey_id)
-                {
-                    if verbose { eprint!(" [jockey:cache]"); }
-                    cached
+        // Check jockey cache (deduplicate)
+        if !entry.jockey_id.is_empty() && !seen_jockeys.contains(&entry.jockey_id) {
+            seen_jockeys.insert(entry.jockey_id.clone());
+            if !force {
+                if let Some(cached) = cache.get::<JockeyProfile>(CacheCategory::Jockey, &entry.jockey_id) {
+                    jockeys.insert(entry.jockey_id.clone(), cached);
                 } else {
-                    if verbose { eprint!(" [jockey:fetch]"); }
-                    rate_limiter.acquire().await;
-                    let url = crate::scraper::jockey_url(&entry.jockey_id);
-                    let html = browser.fetch_page(&url).await?;
-                    let profile = JockeyParser::parse(&html, &entry.jockey_id)?;
-                    let _ = cache.set(CacheCategory::Jockey, &entry.jockey_id, &profile);
-                    profile
+                    fetch_tasks.push(FetchTask::Jockey(entry.jockey_id.clone()));
                 }
             } else {
-                if verbose { eprint!(" [jockey:force]"); }
-                rate_limiter.acquire().await;
-                let url = crate::scraper::jockey_url(&entry.jockey_id);
-                let html = browser.fetch_page(&url).await?;
-                JockeyParser::parse(&html, &entry.jockey_id)?
-            };
-            jockeys.insert(entry.jockey_id.clone(), profile);
+                fetch_tasks.push(FetchTask::Jockey(entry.jockey_id.clone()));
+            }
         }
 
-        // Trainer profile
-        if !entry.trainer_id.is_empty() && !trainers.contains_key(&entry.trainer_id) {
-            let profile = if !force {
-                if let Some(cached) =
-                    cache.get::<TrainerProfile>(CacheCategory::Trainer, &entry.trainer_id)
-                {
-                    if verbose { eprint!(" [trainer:cache]"); }
-                    cached
+        // Check trainer cache (deduplicate)
+        if !entry.trainer_id.is_empty() && !seen_trainers.contains(&entry.trainer_id) {
+            seen_trainers.insert(entry.trainer_id.clone());
+            if !force {
+                if let Some(cached) = cache.get::<TrainerProfile>(CacheCategory::Trainer, &entry.trainer_id) {
+                    trainers.insert(entry.trainer_id.clone(), cached);
                 } else {
-                    if verbose { eprint!(" [trainer:fetch]"); }
-                    rate_limiter.acquire().await;
-                    let url = crate::scraper::trainer_url(&entry.trainer_id);
-                    let html = browser.fetch_page(&url).await?;
-                    let profile = TrainerParser::parse(&html, &entry.trainer_id)?;
-                    let _ = cache.set(CacheCategory::Trainer, &entry.trainer_id, &profile);
-                    profile
+                    fetch_tasks.push(FetchTask::Trainer(entry.trainer_id.clone()));
                 }
             } else {
-                if verbose { eprint!(" [trainer:force]"); }
-                rate_limiter.acquire().await;
-                let url = crate::scraper::trainer_url(&entry.trainer_id);
-                let html = browser.fetch_page(&url).await?;
-                TrainerParser::parse(&html, &entry.trainer_id)?
-            };
-            trainers.insert(entry.trainer_id.clone(), profile);
+                fetch_tasks.push(FetchTask::Trainer(entry.trainer_id.clone()));
+            }
         }
     }
-    pb.finish_with_message("Done");
 
-    let _ = browser.close().await;
+    let cached_count = horses.len() + jockeys.len() + trainers.len();
+    let fetch_count = fetch_tasks.len();
+    if verbose {
+        eprintln!("  Cached: {}, To fetch: {}", cached_count, fetch_count);
+    }
+
+    // Parallel fetching with concurrency limit
+    if !fetch_tasks.is_empty() {
+        let pb = ProgressBar::new(fetch_tasks.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("  {spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+                .unwrap()
+                .progress_chars("=>-"),
+        );
+
+        // Use Arc for shared state
+        let browser = Arc::new(browser);
+        let rate_limiter = Arc::new(rate_limiter);
+        let cache = Arc::new(cache);
+        let semaphore = Arc::new(Semaphore::new(4)); // Limit to 4 concurrent fetches
+
+        #[derive(Debug)]
+        enum FetchResult {
+            Horse(String, HorseProfile),
+            Jockey(String, JockeyProfile),
+            Trainer(String, TrainerProfile),
+            Error(String),
+        }
+
+        let results: Vec<FetchResult> = stream::iter(fetch_tasks)
+            .map(|task| {
+                let browser = Arc::clone(&browser);
+                let rate_limiter = Arc::clone(&rate_limiter);
+                let cache = Arc::clone(&cache);
+                let semaphore = Arc::clone(&semaphore);
+                let pb = pb.clone();
+
+                async move {
+                    // Acquire semaphore permit for concurrency control
+                    let _permit = semaphore.acquire().await.unwrap();
+
+                    // Rate limit before fetching
+                    rate_limiter.acquire().await;
+
+                    match task {
+                        FetchTask::Horse(id) => {
+                            pb.set_message(format!("horse:{}", &id[..id.len().min(8)]));
+                            let url = crate::scraper::horse_url(&id);
+                            match browser.fetch_page(&url).await {
+                                Ok(html) => match HorseParser::parse(&html, &id) {
+                                    Ok(profile) => {
+                                        let _ = cache.set(CacheCategory::Horse, &id, &profile);
+                                        pb.inc(1);
+                                        FetchResult::Horse(id, profile)
+                                    }
+                                    Err(e) => {
+                                        pb.inc(1);
+                                        FetchResult::Error(format!("Horse parse error {}: {}", id, e))
+                                    }
+                                },
+                                Err(e) => {
+                                    pb.inc(1);
+                                    FetchResult::Error(format!("Horse fetch error {}: {}", id, e))
+                                }
+                            }
+                        }
+                        FetchTask::Jockey(id) => {
+                            pb.set_message(format!("jockey:{}", &id[..id.len().min(8)]));
+                            let url = crate::scraper::jockey_url(&id);
+                            match browser.fetch_page(&url).await {
+                                Ok(html) => match JockeyParser::parse(&html, &id) {
+                                    Ok(profile) => {
+                                        let _ = cache.set(CacheCategory::Jockey, &id, &profile);
+                                        pb.inc(1);
+                                        FetchResult::Jockey(id, profile)
+                                    }
+                                    Err(e) => {
+                                        pb.inc(1);
+                                        FetchResult::Error(format!("Jockey parse error {}: {}", id, e))
+                                    }
+                                },
+                                Err(e) => {
+                                    pb.inc(1);
+                                    FetchResult::Error(format!("Jockey fetch error {}: {}", id, e))
+                                }
+                            }
+                        }
+                        FetchTask::Trainer(id) => {
+                            pb.set_message(format!("trainer:{}", &id[..id.len().min(8)]));
+                            let url = crate::scraper::trainer_url(&id);
+                            match browser.fetch_page(&url).await {
+                                Ok(html) => match TrainerParser::parse(&html, &id) {
+                                    Ok(profile) => {
+                                        let _ = cache.set(CacheCategory::Trainer, &id, &profile);
+                                        pb.inc(1);
+                                        FetchResult::Trainer(id, profile)
+                                    }
+                                    Err(e) => {
+                                        pb.inc(1);
+                                        FetchResult::Error(format!("Trainer parse error {}: {}", id, e))
+                                    }
+                                },
+                                Err(e) => {
+                                    pb.inc(1);
+                                    FetchResult::Error(format!("Trainer fetch error {}: {}", id, e))
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            .buffer_unordered(4) // Process up to 4 fetches concurrently
+            .collect()
+            .await;
+
+        pb.finish_with_message("Done");
+
+        // Collect results
+        let mut errors: Vec<String> = Vec::new();
+        for result in results {
+            match result {
+                FetchResult::Horse(id, profile) => { horses.insert(id, profile); }
+                FetchResult::Jockey(id, profile) => { jockeys.insert(id, profile); }
+                FetchResult::Trainer(id, profile) => { trainers.insert(id, profile); }
+                FetchResult::Error(msg) => {
+                    if verbose { eprintln!("  Warning: {}", msg.yellow()); }
+                    errors.push(msg);
+                }
+            }
+        }
+
+        if !errors.is_empty() && verbose {
+            eprintln!("  {} fetch errors (continuing with available data)", errors.len());
+        }
+
+        // Close browser - need to unwrap Arc
+        let browser = Arc::try_unwrap(browser)
+            .map_err(|_| anyhow::anyhow!("Failed to unwrap browser Arc"))?;
+        let _ = browser.close().await;
+    } else {
+        // All cached, just close browser
+        let _ = browser.close().await;
+    }
     eprintln!(
         "  Profiles loaded: {} horses, {} jockeys, {} trainers",
         format!("{}", horses.len()).cyan(),
@@ -986,4 +1185,65 @@ fn calculate_ev_trifecta(
 
     results.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap());
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_race_id_valid() {
+        assert!(validate_race_id("202506050811").is_ok());
+        assert!(validate_race_id("202501010101").is_ok());
+        assert!(validate_race_id("202010121212").is_ok());
+    }
+
+    #[test]
+    fn test_validate_race_id_invalid_length() {
+        assert!(validate_race_id("2025060508").is_err());
+        assert!(validate_race_id("20250605081112").is_err());
+        assert!(validate_race_id("").is_err());
+    }
+
+    #[test]
+    fn test_validate_race_id_invalid_chars() {
+        assert!(validate_race_id("20250605081a").is_err());
+        assert!(validate_race_id("2025-06-05-08").is_err());
+    }
+
+    #[test]
+    fn test_validate_race_id_invalid_year() {
+        assert!(validate_race_id("201806050811").is_err()); // Too old
+        assert!(validate_race_id("203106050811").is_err()); // Too future
+    }
+
+    #[test]
+    fn test_validate_race_id_invalid_racecourse() {
+        assert!(validate_race_id("202500050811").is_err()); // 00 invalid
+        assert!(validate_race_id("202511050811").is_err()); // 11 invalid
+    }
+
+    #[test]
+    fn test_validate_race_id_invalid_race_number() {
+        assert!(validate_race_id("202506050800").is_err()); // Race 00
+        assert!(validate_race_id("202506050813").is_err()); // Race 13
+    }
+
+    #[test]
+    fn test_validate_bet_type_valid() {
+        assert!(validate_bet_type("exacta").is_ok());
+        assert!(validate_bet_type("trifecta").is_ok());
+        assert!(validate_bet_type("quinella").is_ok());
+        assert!(validate_bet_type("trio").is_ok());
+        assert!(validate_bet_type("wide").is_ok());
+        assert!(validate_bet_type("all").is_ok());
+        assert!(validate_bet_type("EXACTA").is_ok()); // Case insensitive
+    }
+
+    #[test]
+    fn test_validate_bet_type_invalid() {
+        assert!(validate_bet_type("invalid").is_err());
+        assert!(validate_bet_type("").is_err());
+        assert!(validate_bet_type("win").is_err());
+    }
 }

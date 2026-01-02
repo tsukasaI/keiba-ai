@@ -3,23 +3,27 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Horse features for prediction
-#[derive(Debug, Clone, Deserialize)]
+/// Horse features for prediction (39 features matching model input)
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct HorseFeatures {
+    // Basic (5)
     pub horse_age_num: f32,
-    pub horse_sex_encoded: f32,
+    pub horse_sex_encoded: f32,  // 牡:0, 牝:1, セ:2
     pub post_position_num: f32,
     pub weight_carried: f32,
     pub horse_weight: f32,
+    // Jockey/Trainer (5)
     pub jockey_win_rate: f32,
     pub jockey_place_rate: f32,
     pub trainer_win_rate: f32,
     pub jockey_races: f32,
     pub trainer_races: f32,
+    // Race conditions (4)
     pub distance_num: f32,
     pub is_turf: f32,
     pub is_dirt: f32,
-    pub track_condition_num: f32,
+    pub track_condition_num: f32,  // 良:0, 稍重:1, 重:2, 不良:3
+    // Past performance (8)
     pub avg_position_last_3: f32,
     pub avg_position_last_5: f32,
     pub win_rate_last_3: f32,
@@ -28,27 +32,68 @@ pub struct HorseFeatures {
     pub place_rate_last_5: f32,
     pub last_position: f32,
     pub career_races: f32,
+    // Odds (1)
     pub odds_log: f32,
+    // Running style (3)
+    #[serde(default)]
+    pub early_position: f32,
+    #[serde(default)]
+    pub late_position: f32,
+    #[serde(default)]
+    pub position_change: f32,
+    // Aptitude (7)
+    #[serde(default)]
+    pub aptitude_sprint: f32,
+    #[serde(default)]
+    pub aptitude_mile: f32,
+    #[serde(default)]
+    pub aptitude_intermediate: f32,
+    #[serde(default)]
+    pub aptitude_long: f32,
+    #[serde(default)]
+    pub aptitude_turf: f32,
+    #[serde(default)]
+    pub aptitude_dirt: f32,
+    #[serde(default)]
+    pub aptitude_course: f32,
+    // Pace (3)
+    #[serde(default)]
+    pub last_3f_avg: f32,
+    #[serde(default)]
+    pub last_3f_best: f32,
+    #[serde(default)]
+    pub last_3f_last: f32,
+    // Race classification (3)
+    #[serde(default)]
+    pub weight_change_kg: f32,
+    #[serde(default)]
+    pub is_graded_race: f32,
+    #[serde(default)]
+    pub grade_level: f32,
 }
 
 impl HorseFeatures {
-    /// Convert features to array in model input order
-    pub fn to_array(&self) -> [f32; 23] {
+    /// Convert features to array in model input order (39 features)
+    pub fn to_array(&self) -> [f32; 39] {
         [
+            // Basic (5)
             self.horse_age_num,
             self.horse_sex_encoded,
             self.post_position_num,
             self.weight_carried,
             self.horse_weight,
+            // Jockey/Trainer (5)
             self.jockey_win_rate,
             self.jockey_place_rate,
             self.trainer_win_rate,
             self.jockey_races,
             self.trainer_races,
+            // Race conditions (4)
             self.distance_num,
             self.is_turf,
             self.is_dirt,
             self.track_condition_num,
+            // Past performance (8)
             self.avg_position_last_3,
             self.avg_position_last_5,
             self.win_rate_last_3,
@@ -57,7 +102,28 @@ impl HorseFeatures {
             self.place_rate_last_5,
             self.last_position,
             self.career_races,
+            // Odds (1)
             self.odds_log,
+            // Running style (3)
+            self.early_position,
+            self.late_position,
+            self.position_change,
+            // Aptitude (7)
+            self.aptitude_sprint,
+            self.aptitude_mile,
+            self.aptitude_intermediate,
+            self.aptitude_long,
+            self.aptitude_turf,
+            self.aptitude_dirt,
+            self.aptitude_course,
+            // Pace (3)
+            self.last_3f_avg,
+            self.last_3f_best,
+            self.last_3f_last,
+            // Race classification (3)
+            self.weight_change_kg,
+            self.is_graded_race,
+            self.grade_level,
         ]
     }
 }

@@ -333,15 +333,15 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 - ✅ Multiple model types (LightGBM, CatBoost, XGBoost, Ensemble)
 - ✅ Hyperparameter optimization with Optuna (`--optimize` flag)
 - ✅ Colored CLI output with progress bars
-- ✅ Comprehensive test suite (213 Python + 53 Rust tests)
+- ✅ Comprehensive test suite (213 Python + 61 Rust tests)
 
 ## Known Issues & Limitations
 
-### Critical: Feature Count Mismatch (Bug)
+### Fixed: Feature Count Mismatch
 
-The JSON API (`predict`, `backtest`) uses a 23-feature `HorseFeatures` struct (`types.rs`), but the ONNX model expects 39 features. The `live` command works correctly as it uses the 39-feature version from `scraper/feature_builder.rs`.
+~~The JSON API (`predict`, `backtest`) uses a 23-feature `HorseFeatures` struct (`types.rs`), but the ONNX model expects 39 features.~~
 
-**Status**: Needs fix. See `docs/TODO_IMPROVEMENTS.md` for resolution plan.
+**Status**: ✅ Fixed. All commands now use unified 39-feature struct with `#[serde(default)]` for backward compatibility.
 
 ### Data Limitation: Post-Race Odds in Backtest
 
@@ -351,9 +351,11 @@ The Kaggle dataset only contains winning combination odds (post-race), not pre-r
 
 ### Performance: Live Command Latency
 
-Current `live` command takes ~60 seconds for 18 horses due to sequential profile fetching. Target is <30 seconds.
+~~Current `live` command takes ~60 seconds for 18 horses due to sequential profile fetching.~~
 
-**See**: `docs/TODO_PERFORMANCE.md` for optimization plan.
+**Status**: Improved to ~30-40 seconds with parallel fetching (4 concurrent). Target <30s still in progress.
+
+**See**: `docs/TODO_PERFORMANCE.md` for further optimization plan.
 
 ### Missing Features: Blood Data
 
