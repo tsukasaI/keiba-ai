@@ -249,3 +249,133 @@ class TestEnsembleModel:
         assert info["n_models"] == 1
         assert "XGBoostPositionModel" in info["model_types"]
         assert info["strategy"] == "weighted_average"
+
+
+class TestStackingEnsemble:
+    """Tests for EnsembleModel with stacking strategy."""
+
+    def test_stacking_train(self, sample_data):
+        """Test stacking ensemble training."""
+        X_train, y_train, X_val, y_val = sample_data
+
+        ensemble = EnsembleModel(strategy="stacking", n_folds=3)
+        ensemble.train(
+            X_train, y_train,
+            X_val, y_val,
+            model_configs=[
+                {"type": "xgboost", "params": {"max_depth": 3}},
+                {"type": "catboost", "params": {"depth": 3}},
+            ],
+        )
+
+        assert len(ensemble.models) == 2
+        assert ensemble.meta_learners is not None
+        assert len(ensemble.meta_learners) == 18  # One per class
+
+    def test_stacking_predict(self, sample_data):
+        """Test stacking ensemble prediction."""
+        X_train, y_train, X_val, y_val = sample_data
+
+        ensemble = EnsembleModel(strategy="stacking", n_folds=3)
+        ensemble.train(
+            X_train, y_train,
+            X_val, y_val,
+            model_configs=[
+                {"type": "xgboost", "params": {"max_depth": 3}},
+                {"type": "catboost", "params": {"depth": 3}},
+            ],
+        )
+
+        proba = ensemble.predict_proba(X_val)
+
+        assert proba.shape == (len(X_val), 18)
+        # Probabilities should be non-negative
+        assert np.all(proba >= 0)
+        # Rows should sum to 1
+        assert np.allclose(proba.sum(axis=1), 1.0, atol=1e-5)
+
+    def test_stacking_save_load(self, sample_data):
+        """Test stacking ensemble persistence."""
+        X_train, y_train, X_val, y_val = sample_data
+
+        ensemble = EnsembleModel(strategy="stacking", n_folds=3)
+        ensemble.train(
+            X_train, y_train,
+            X_val, y_val,
+            model_configs=[
+                {"type": "xgboost", "params": {"max_depth": 3}},
+                {"type": "catboost", "params": {"depth": 3}},
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "stacking_ensemble.pkl"
+            ensemble.save(path)
+
+            loaded = EnsembleModel.load(path)
+
+            assert loaded.strategy == "stacking"
+            assert loaded.meta_learners is not None
+            assert len(loaded.meta_learners) == 18
+
+            # Predictions should be the same
+            orig_pred = ensemble.predict_proba(X_val)
+            loaded_pred = loaded.predict_proba(X_val)
+
+            np.testing.assert_array_almost_equal(orig_pred, loaded_pred)
+
+    def test_stacking_model_info(self, sample_data):
+        """Test stacking model info."""
+        X_train, y_train, X_val, y_val = sample_data
+
+        ensemble = EnsembleModel(strategy="stacking", n_folds=3)
+        ensemble.train(
+            X_train, y_train,
+            X_val, y_val,
+            model_configs=[
+                {"type": "xgboost", "params": {"max_depth": 3}},
+            ],
+        )
+
+        info = ensemble.get_model_info()
+
+        assert info["strategy"] == "stacking"
+        assert info["n_folds"] == 3
+        assert info["has_meta_learners"] is True
+        assert "meta_learner_alphas" in info
+        assert len(info["meta_learner_alphas"]) == 18
+
+    def test_stacking_vs_averaging(self, sample_data):
+        """Compare stacking with weighted averaging predictions."""
+        X_train, y_train, X_val, y_val = sample_data
+
+        model_configs = [
+            {"type": "xgboost", "params": {"max_depth": 3}},
+            {"type": "catboost", "params": {"depth": 3}},
+        ]
+
+        # Train stacking ensemble
+        stacking = EnsembleModel(strategy="stacking", n_folds=3)
+        stacking.train(X_train, y_train, X_val, y_val, model_configs=model_configs)
+
+        # Train weighted average ensemble
+        averaging = EnsembleModel(strategy="weighted_average")
+        averaging.train(X_train, y_train, X_val, y_val, model_configs=model_configs)
+
+        # Both should produce valid probabilities
+        stacking_pred = stacking.predict_proba(X_val)
+        averaging_pred = averaging.predict_proba(X_val)
+
+        assert stacking_pred.shape == averaging_pred.shape
+        assert np.allclose(stacking_pred.sum(axis=1), 1.0, atol=1e-5)
+        assert np.allclose(averaging_pred.sum(axis=1), 1.0, atol=1e-5)
+
+        # Predictions should be different (stacking learns weights)
+        # This is a weak check; they could theoretically be the same
+        # but in practice stacking should produce different results
+        assert not np.allclose(stacking_pred, averaging_pred)
+
+    def test_invalid_strategy(self):
+        """Test that invalid strategy raises error."""
+        with pytest.raises(ValueError, match="Invalid strategy"):
+            EnsembleModel(strategy="invalid_strategy")

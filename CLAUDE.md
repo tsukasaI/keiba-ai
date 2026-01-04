@@ -243,6 +243,7 @@ python scripts/retrain.py --export-only
 | `catboost` | CatBoost | Categorical features (jockey/trainer) |
 | `xgb` | XGBoost | Alternative gradient boosting |
 | `ensemble` | Weighted ensemble | Maximum accuracy, stable ROI |
+| `ensemble --stacking` | Stacking ensemble | Meta-learner combines base models |
 
 Outputs:
 - `data/models/position_model_39features.pkl` - Pickled model

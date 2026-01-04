@@ -8,6 +8,7 @@ Usage:
     python scripts/retrain.py                    # Full pipeline (LightGBM)
     python scripts/retrain.py --model-type catboost   # Use CatBoost model
     python scripts/retrain.py --model-type ensemble   # Use ensemble model
+    python scripts/retrain.py --model-type ensemble --stacking  # Ensemble with stacking
     python scripts/retrain.py --optimize         # Run hyperparameter optimization
     python scripts/retrain.py --skip-features    # Skip feature engineering
     python scripts/retrain.py --validate-only    # Only run validation
@@ -130,19 +131,23 @@ def run_feature_engineering() -> bool:
     return True
 
 
-def run_training(model_type: str = "lgbm", params: dict = None) -> bool:
+def run_training(model_type: str = "lgbm", params: dict = None, use_stacking: bool = False) -> bool:
     """Step 2: Train model with cross-validation.
 
     Args:
         model_type: Model type ('lgbm', 'xgb', 'catboost', 'ensemble')
         params: Optional hyperparameters from optimization
+        use_stacking: Use stacking strategy for ensemble (default: False)
     """
-    step_banner(2, f"MODEL TRAINING ({model_type.upper()})")
+    strategy_str = " with STACKING" if (model_type == "ensemble" and use_stacking) else ""
+    step_banner(2, f"MODEL TRAINING ({model_type.upper()}{strategy_str})")
 
     start = datetime.now()
     logger.info(f"Started at {start.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Using {len(FEATURES)} features")
     logger.info(f"Model type: {model_type}")
+    if model_type == "ensemble":
+        logger.info(f"Ensemble strategy: {'stacking' if use_stacking else 'weighted_average'}")
 
     # Load data
     loader = RaceDataLoader()
@@ -179,7 +184,8 @@ def run_training(model_type: str = "lgbm", params: dict = None) -> bool:
     # Create and train model
     if model_type == "ensemble":
         # Ensemble trains multiple models internally
-        final_model = EnsembleModel(strategy="weighted_average")
+        strategy = "stacking" if use_stacking else "weighted_average"
+        final_model = EnsembleModel(strategy=strategy)
         final_model.train(
             X_train, y_train,
             X_val, y_val,
@@ -558,6 +564,7 @@ Examples:
   python scripts/retrain.py --model-type catboost   # Use CatBoost model
   python scripts/retrain.py --model-type xgb        # Use XGBoost model
   python scripts/retrain.py --model-type ensemble   # Use ensemble (LightGBM+XGBoost+CatBoost)
+  python scripts/retrain.py --model-type ensemble --stacking  # Ensemble with stacking
   python scripts/retrain.py --optimize              # Run hyperparameter optimization first
   python scripts/retrain.py --optimize --n-trials 100  # More optimization trials
   python scripts/retrain.py --skip-features         # Skip feature engineering
@@ -572,6 +579,11 @@ Examples:
         choices=["lgbm", "xgb", "catboost", "ensemble"],
         default="lgbm",
         help="Model type to train (default: lgbm)",
+    )
+    parser.add_argument(
+        "--stacking",
+        action="store_true",
+        help="Use stacking strategy for ensemble (trains meta-learner on CV predictions)",
     )
     parser.add_argument(
         "--optimize",
@@ -607,6 +619,8 @@ Examples:
     print("=" * 60)
     print(f"Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Model type: {args.model_type}")
+    if args.model_type == "ensemble":
+        print(f"Ensemble strategy: {'stacking' if args.stacking else 'weighted_average'}")
     print(f"Features: {len(FEATURES)}")
     if args.optimize:
         print(f"Optimization: {args.n_trials} trials")
@@ -639,7 +653,7 @@ Examples:
                 logger.info("Skipping feature engineering (--skip-features)")
 
             # Step 2: Training
-            if not run_training(args.model_type, optimized_params):
+            if not run_training(args.model_type, optimized_params, args.stacking):
                 sys.exit(1)
 
             # Step 3: Validation (also collects calibration data)

@@ -217,12 +217,29 @@ importance_df.to_csv('data/models/feature_importance.csv', index=False)
 
 ### Priority 3: Ensemble Optimization
 
-**Current State**: Simple weighted average ensemble
+**Status**: ✅ STACKING IMPLEMENTED
 
-**Improvements**:
-1. **Stacking**: Use meta-learner to combine base predictions
-2. **Dynamic weighting**: Weight models by recent performance
-3. **Diversity selection**: Choose ensemble members that disagree productively
+**Current State**: Supports three strategies:
+- `simple_average`: Equal weight for all models
+- `weighted_average`: Weights based on validation log loss
+- `stacking`: Train meta-learner (RidgeCV) on cross-validated base predictions
+
+**Stacking Implementation**:
+- Uses K-fold CV (default 5 folds) to generate out-of-fold predictions
+- Meta-features: flattened predictions from all base models (n_models × 18 classes)
+- Meta-learner: RidgeCV with alpha selection per class (18 meta-learners)
+- Base models retrained on full data after meta-learner fitting
+
+**Usage**:
+```bash
+# Train with stacking
+python scripts/retrain.py --model-type ensemble --stacking
+```
+
+**Remaining Improvements**:
+1. ~~**Stacking**: Use meta-learner to combine base predictions~~ ✅ Done
+2. **Dynamic weighting**: Weight models by recent performance (future)
+3. **Diversity selection**: Choose ensemble members that disagree productively (future)
 
 ---
 
@@ -352,6 +369,7 @@ jobs:
 | Blood features | High | Medium | P2 | ✅ Done (infra) |
 | Scraper tests | Medium | Low | P2 | ✅ Done |
 | Feature importance export | Medium | Low | P2 | ✅ Done |
+| Stacking ensemble | Medium | Medium | P2 | ✅ Done |
 | Enhanced output | Medium | Medium | P3 | ✅ Done |
 | Retry logic | Medium | Medium | P3 | ✅ Done |
 | DOM readiness detection | Medium | Low | P3 | ✅ Done |
@@ -377,7 +395,7 @@ jobs:
 ### v1.3 - Model Quality (COMPLETED)
 - [x] Blood features infrastructure (sire_stats.rs, generate_sire_stats.py)
 - [x] Feature importance export
-- [ ] Enhanced ensemble
+- [x] Enhanced ensemble (stacking with meta-learner)
 - [ ] Improved calibration
 - [ ] Retrain model with blood features (requires JRA-VAN data)
 

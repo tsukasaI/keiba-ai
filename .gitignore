@@ -44,6 +44,8 @@ data/processed/*.parquet
 data/processed/*.csv
 data/models/*.pkl
 data/models/*.onnx
+data/models/*.csv
+data/models/*.json
 
 # Scraper cache and temp files
 data/cache/
