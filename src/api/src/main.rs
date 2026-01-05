@@ -13,6 +13,7 @@ mod quinella;
 mod retry;
 mod routes;
 mod scraper;
+mod storage;
 mod trifecta;
 mod trio;
 mod types;
@@ -80,6 +81,25 @@ async fn main() -> anyhow::Result<()> {
             force,
             verbose,
         } => cli::run_live(race_id, bet_type, ev_threshold, output, calibration, force, verbose).await,
+        Commands::ScrapeHistorical {
+            date,
+            start,
+            end,
+            db,
+            include_odds,
+            force,
+            verbose,
+        } => cli::run_scrape_historical(date, start, end, db, include_odds, force, verbose).await,
+        Commands::BacktestHistorical {
+            db,
+            start,
+            end,
+            bet_type,
+            model,
+            calibration,
+            ev_threshold,
+            format,
+        } => cli::run_backtest_historical(db, start, end, bet_type, model, calibration, ev_threshold, format).await,
     }
 }
 

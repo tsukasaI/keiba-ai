@@ -219,6 +219,72 @@ pub enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+
+    /// Scrape historical race data from db.netkeiba.com
+    ScrapeHistorical {
+        /// Specific date to scrape (YYYY-MM-DD)
+        #[arg(long)]
+        date: Option<String>,
+
+        /// Start date for range (YYYY-MM-DD)
+        #[arg(long)]
+        start: Option<String>,
+
+        /// End date for range (YYYY-MM-DD)
+        #[arg(long)]
+        end: Option<String>,
+
+        /// SQLite database path
+        #[arg(long, default_value = "data/historical/keiba.db")]
+        db: PathBuf,
+
+        /// Include all bet type odds (slower)
+        #[arg(long)]
+        include_odds: bool,
+
+        /// Force re-scrape existing races
+        #[arg(long)]
+        force: bool,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+    },
+
+    /// Run backtest using historical SQLite data
+    BacktestHistorical {
+        /// SQLite database path
+        #[arg(long, default_value = "data/historical/keiba.db")]
+        db: PathBuf,
+
+        /// Start date (YYYY-MM-DD)
+        #[arg(long)]
+        start: String,
+
+        /// End date (YYYY-MM-DD)
+        #[arg(long)]
+        end: String,
+
+        /// Bet type (exacta, trifecta, quinella, trio, wide)
+        #[arg(short, long, default_value = "exacta")]
+        bet_type: String,
+
+        /// Model path override
+        #[arg(short, long)]
+        model: Option<PathBuf>,
+
+        /// Calibration config JSON file
+        #[arg(short, long)]
+        calibration: Option<PathBuf>,
+
+        /// EV threshold for betting
+        #[arg(long, default_value_t = 1.0)]
+        ev_threshold: f64,
+
+        /// Output format (json, table)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+    },
 }
 
 /// Load calibrator from path or default location.
@@ -1260,6 +1326,250 @@ fn calculate_ev_trifecta(
 
     results.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap());
     results
+}
+
+/// Run historical data scraping.
+pub async fn run_scrape_historical(
+    date: Option<String>,
+    start: Option<String>,
+    end: Option<String>,
+    db_path: PathBuf,
+    include_odds: bool,
+    force: bool,
+    verbose: bool,
+) -> anyhow::Result<()> {
+    use chrono::{Datelike, NaiveDate};
+    use colored::Colorize;
+    use indicatif::{ProgressBar, ProgressStyle};
+
+    use crate::scraper::historical::{
+        race_list_url, race_result_url, RaceListParser, RaceResultParser,
+    };
+    use crate::scraper::Browser;
+    use crate::storage::RaceRepository;
+
+    // Determine date range
+    let (start_date, end_date) = if let Some(d) = date {
+        let d = NaiveDate::parse_from_str(&d, "%Y-%m-%d")
+            .map_err(|e| anyhow::anyhow!("Invalid date format: {}. Use YYYY-MM-DD", e))?;
+        (d, d)
+    } else if let (Some(s), Some(e)) = (start.clone(), end.clone()) {
+        let start_date = NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+            .map_err(|e| anyhow::anyhow!("Invalid start date: {}. Use YYYY-MM-DD", e))?;
+        let end_date = NaiveDate::parse_from_str(&e, "%Y-%m-%d")
+            .map_err(|e| anyhow::anyhow!("Invalid end date: {}. Use YYYY-MM-DD", e))?;
+        (start_date, end_date)
+    } else {
+        return Err(anyhow::anyhow!(
+            "Specify --date for single date or --start and --end for range"
+        ));
+    };
+
+    println!(
+        "{} Scraping historical data from {} to {}",
+        "Historical Scraper".green().bold(),
+        start_date,
+        end_date
+    );
+    println!("Database: {}", db_path.display());
+    println!("Include odds: {}", include_odds);
+    println!();
+
+    // Initialize repository
+    let repo = RaceRepository::new(&db_path)?;
+
+    // Count total days
+    let total_days = (end_date - start_date).num_days() + 1;
+    println!("Total days to scrape: {}", total_days);
+
+    // Resume capability
+    if !force {
+        if let Some(last_date) = repo.get_last_race_date()? {
+            println!(
+                "{}",
+                format!("Last scraped date: {}. Use --force to re-scrape.", last_date).yellow()
+            );
+        }
+    }
+
+    // Initialize browser
+    println!("Launching browser...");
+    let browser = Browser::launch().await?;
+
+    let progress = ProgressBar::new(total_days as u64);
+    progress.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
+    let mut total_races = 0;
+    let mut current_date = start_date;
+
+    while current_date <= end_date {
+        let year = current_date.year() as u32;
+        let month = current_date.month();
+        let day = current_date.day();
+
+        // Fetch race list for the day
+        let list_url = race_list_url(year, month, day);
+        if verbose {
+            println!("Fetching race list: {}", list_url);
+        }
+
+        match browser.fetch_page(&list_url).await {
+            Ok(html) => {
+                let race_ids = RaceListParser::parse(&html).unwrap_or_default();
+
+                for race_id in &race_ids {
+                    // Check if race already exists
+                    if !force && repo.race_exists(race_id)? {
+                        if verbose {
+                            println!("  Skipping existing race: {}", race_id);
+                        }
+                        continue;
+                    }
+
+                    // Fetch race result
+                    let result_url = race_result_url(race_id);
+                    if verbose {
+                        println!("  Fetching race: {}", race_id);
+                    }
+
+                    match browser.fetch_page(&result_url).await {
+                        Ok(result_html) => {
+                            if let Ok((race_info, entries)) =
+                                RaceResultParser::parse(&result_html, race_id)
+                            {
+                                // Save race
+                                repo.insert_race(&race_info)?;
+
+                                // Save entries
+                                for entry in &entries {
+                                    repo.insert_entry(entry)?;
+                                }
+
+                                total_races += 1;
+
+                                if verbose {
+                                    println!(
+                                        "    Saved race {} with {} entries",
+                                        race_id,
+                                        entries.len()
+                                    );
+                                }
+
+                                // TODO: Fetch odds if include_odds is true
+                                // This would require implementing odds fetching
+                            }
+                        }
+                        Err(e) => {
+                            if verbose {
+                                eprintln!("  Failed to fetch race {}: {}", race_id, e);
+                            }
+                        }
+                    }
+
+                    // Rate limiting
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+            }
+            Err(e) => {
+                if verbose {
+                    eprintln!("Failed to fetch race list for {}: {}", current_date, e);
+                }
+            }
+        }
+
+        progress.inc(1);
+        current_date = current_date.succ_opt().unwrap();
+    }
+
+    progress.finish_with_message("Done!");
+
+    println!();
+    println!("{}", "Summary:".green().bold());
+    println!("  Total races scraped: {}", total_races);
+    println!("  Total races in database: {}", repo.get_race_count()?);
+
+    Ok(())
+}
+
+/// Run backtest using historical SQLite data.
+pub async fn run_backtest_historical(
+    db_path: PathBuf,
+    start: String,
+    end: String,
+    bet_type: String,
+    _model_path: Option<PathBuf>,
+    _calibration_path: Option<PathBuf>,
+    ev_threshold: f64,
+    _format: String,
+) -> anyhow::Result<()> {
+    use chrono::NaiveDate;
+    use colored::Colorize;
+
+    use crate::storage::RaceRepository;
+
+    // Parse dates
+    let start_date = NaiveDate::parse_from_str(&start, "%Y-%m-%d")
+        .map_err(|e| anyhow::anyhow!("Invalid start date: {}. Use YYYY-MM-DD", e))?;
+    let end_date = NaiveDate::parse_from_str(&end, "%Y-%m-%d")
+        .map_err(|e| anyhow::anyhow!("Invalid end date: {}. Use YYYY-MM-DD", e))?;
+
+    println!(
+        "{} Running backtest from {} to {}",
+        "Historical Backtest".green().bold(),
+        start_date,
+        end_date
+    );
+    println!("Database: {}", db_path.display());
+    println!("Bet type: {}", bet_type);
+    println!("EV threshold: {}", ev_threshold);
+    println!();
+
+    // Check database exists
+    if !db_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Database not found: {}\nRun 'keiba-api scrape-historical' first to collect data.",
+            db_path.display()
+        ));
+    }
+
+    // Load repository
+    let repo = RaceRepository::new(&db_path)?;
+
+    // Get race count
+    let race_count = repo.get_race_count()?;
+    println!("Total races in database: {}", race_count);
+
+    // Get races in date range
+    let races = repo.get_races_by_date_range(start_date, end_date)?;
+    println!("Races in date range: {}", races.len());
+
+    if races.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No races found in date range. Run 'keiba-api scrape-historical' to collect more data."
+        ));
+    }
+
+    // TODO: Implement full backtest logic
+    // This would involve:
+    // 1. Loading model
+    // 2. For each race, building features from entries
+    // 3. Running inference
+    // 4. Comparing predictions with actual results
+    // 5. Calculating ROI
+
+    println!();
+    println!(
+        "{}",
+        "Historical backtest not fully implemented yet.".yellow()
+    );
+    println!("Found {} races. Full backtest logic coming soon.", races.len());
+
+    Ok(())
 }
 
 #[cfg(test)]

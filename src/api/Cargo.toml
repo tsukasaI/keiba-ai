@@ -39,6 +39,9 @@ indicatif = "0.17"
 polars = { version = "0.45", features = ["parquet", "csv", "lazy"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+# SQLite storage (for historical data)
+rusqlite = { version = "0.32", features = ["bundled"] }
+
 # Scraper (browser automation and HTML parsing)
 chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"] }
 scraper = "0.22"

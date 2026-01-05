@@ -101,7 +101,7 @@ FEATURE_CATEGORIES = {
     ],
     "running_style": [
         "early_position",
-        "mid_position", 
+        "mid_position",
         "final_position",
         "running_style_category",
     ],
@@ -111,4 +111,33 @@ FEATURE_CATEGORIES = {
         "sire_win_rate_surface",
         "sire_win_rate_distance",
     ],
+}
+
+# Historical data scraping configuration
+HISTORICAL_CONFIG = {
+    # SQLite database path (relative to project root)
+    "db_path": "data/historical/keiba.db",
+
+    # Default date range for scraping
+    "default_start_date": date(2022, 1, 1),
+    "default_end_date": date(2025, 12, 31),
+
+    # Rate limiting
+    "requests_per_second": 1.0,
+    "timeout_per_date": 300,  # 5 minutes per date
+
+    # Retry settings
+    "max_retries": 3,
+    "retry_delay_seconds": 5,
+
+    # Data source URLs (db.netkeiba.com)
+    "race_list_url": "https://db.netkeiba.com/race/list/{date}/",
+    "race_result_url": "https://db.netkeiba.com/race/{race_id}/",
+    "odds_urls": {
+        "exacta": "https://db.netkeiba.com/odds/{race_id}/umatan/",
+        "trifecta": "https://db.netkeiba.com/odds/{race_id}/sanrentan/",
+        "quinella": "https://db.netkeiba.com/odds/{race_id}/umaren/",
+        "trio": "https://db.netkeiba.com/odds/{race_id}/sanrenpuku/",
+        "wide": "https://db.netkeiba.com/odds/{race_id}/wide/",
+    },
 }

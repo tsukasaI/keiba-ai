@@ -5,6 +5,7 @@
 pub mod browser;
 pub mod cache;
 pub mod feature_builder;
+pub mod historical;
 pub mod parsers;
 pub mod rate_limiter;
 pub mod sire_stats;
