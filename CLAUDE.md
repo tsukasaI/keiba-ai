@@ -39,20 +39,32 @@ keiba-ai/
 │       │   ├── calibration.rs # Probability calibration
 │       │   ├── config.rs     # Configuration
 │       │   ├── types.rs      # Request/response types
-│       │   └── scraper/      # Live race scraper (Rust)
-│       │       ├── mod.rs           # Module definition
-│       │       ├── browser.rs       # chromiumoxide browser automation
-│       │       ├── cache.rs         # File-based cache with TTL
-│       │       ├── rate_limiter.rs  # Token bucket rate limiter
-│       │       ├── feature_builder.rs # 39 ML features
-│       │       └── parsers/         # HTML/JSON parsers
-│       │           ├── race_card.rs # Race card parser
-│       │           ├── horse.rs     # Horse profile parser
-│       │           ├── jockey.rs    # Jockey profile parser
-│       │           ├── trainer.rs   # Trainer profile parser
-│       │           └── odds.rs      # Odds API parser
+│       │   ├── scraper/      # Live race scraper (Rust)
+│       │   │   ├── mod.rs           # Module definition
+│       │   │   ├── browser.rs       # chromiumoxide browser automation
+│       │   │   ├── cache.rs         # File-based cache with TTL
+│       │   │   ├── rate_limiter.rs  # Token bucket rate limiter
+│       │   │   ├── feature_builder.rs # 39 ML features
+│       │   │   ├── parsers/         # HTML/JSON parsers
+│       │   │   │   ├── race_card.rs # Race card parser
+│       │   │   │   ├── horse.rs     # Horse profile parser
+│       │   │   │   ├── jockey.rs    # Jockey profile parser
+│       │   │   │   ├── trainer.rs   # Trainer profile parser
+│       │   │   │   └── odds.rs      # Odds API parser
+│       │   │   └── historical/      # Historical data scraper
+│       │   │       ├── mod.rs       # URL builders
+│       │   │       ├── race_list.rs # Race schedule parser
+│       │   │       ├── race_result.rs # Race result parser
+│       │   │       └── odds_history.rs # Historical odds parser
+│       │   └── storage/         # SQLite storage layer
+│       │       ├── mod.rs
+│       │       ├── schema.rs    # Table definitions
+│       │       └── repository.rs # CRUD operations
 │       └── scripts/
 │           └── prepare_backtest_data.py
+├── data/
+│   └── historical/
+│       └── keiba.db             # SQLite database (scraped data)
 ├── scripts/                  # Python scripts
 │   ├── retrain.py            # Model retraining pipeline
 │   ├── run_validation.py     # Validation backtest
@@ -81,9 +93,16 @@ All phases completed:
 - Format: CSV (pre-processed, easy to use)
 - Contents: Race results, betting odds, lap times, corner passing orders
 
+### Historical: netkeiba.com Scraper
+- URL: https://db.netkeiba.com/
+- Period: 2022-2025 (scraped via `scrape-historical` command)
+- Format: SQLite database (`data/historical/keiba.db`)
+- Contents: Race results, pre-race odds (all combinations), horse/jockey/trainer data
+
 ### Future: JRA-VAN DataLab (Paid)
-- For 2022+ data when moving to production
-- Official JRA data with more features (training data, etc.)
+- For production-grade data with training/workout info
+- Official JRA data with more features
+- Requires Windows (JV-Link is ActiveX COM)
 
 ## Key Concepts
 
@@ -259,7 +278,9 @@ Outputs:
 | `live` | **Live prediction** - Scrape race data and predict (single command) |
 | `serve` | Start REST API server |
 | `predict` | Run prediction on race JSON file |
-| `backtest` | Run walk-forward backtest on historical data |
+| `backtest` | Run walk-forward backtest on Kaggle data |
+| `scrape-historical` | Scrape historical race data from db.netkeiba.com |
+| `backtest-historical` | Run backtest on scraped historical data (SQLite) |
 
 #### Live Command Options
 
@@ -296,6 +317,31 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 | GET | `/health` | Health check |
 | GET | `/model/info` | Model information |
 | POST | `/predict` | Race prediction (all 5 bet types) |
+
+#### Historical Data Commands
+
+```bash
+# Scrape historical race data from db.netkeiba.com
+keiba-api scrape-historical --date 2024-12-22 --db data/historical/keiba.db
+keiba-api scrape-historical --start 2022-01-01 --end 2025-12-31 --include-odds
+
+# Backtest with scraped historical data
+keiba-api backtest-historical --db data/historical/keiba.db \
+    --start 2023-01-01 --end 2024-12-31 \
+    --bet-type exacta --ev-threshold 1.0
+
+# Python orchestrator (with resume capability)
+python src/data_collection/historical_scraper.py --start 2024-01-01 --end 2024-12-31
+python src/data_collection/historical_scraper.py --resume  # Continue from last date
+```
+
+Options for `scrape-historical`:
+- `--date`: Single date to scrape (YYYY-MM-DD)
+- `--start/--end`: Date range to scrape
+- `--db`: SQLite database path
+- `--include-odds`: Scrape exacta/trifecta odds (slower)
+- `--force`: Re-scrape existing data
+- `--verbose`: Show detailed progress
 
 ## Important Notes
 
@@ -334,7 +380,9 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 - ✅ Multiple model types (LightGBM, CatBoost, XGBoost, Ensemble)
 - ✅ Hyperparameter optimization with Optuna (`--optimize` flag)
 - ✅ Colored CLI output with progress bars
-- ✅ Comprehensive test suite (213 Python + 72 Rust tests)
+- ✅ Historical data scraper (db.netkeiba.com, 2022-2025)
+- ✅ SQLite storage for historical race data
+- ✅ Comprehensive test suite (213 Python + 108 Rust tests)
 
 ## Known Issues & Limitations
 
