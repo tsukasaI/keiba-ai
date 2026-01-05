@@ -7,4 +7,6 @@ pub mod repository;
 pub mod schema;
 
 pub use repository::RaceRepository;
+// create_tables is used internally by RaceRepository
+#[allow(unused_imports)]
 pub use schema::create_tables;

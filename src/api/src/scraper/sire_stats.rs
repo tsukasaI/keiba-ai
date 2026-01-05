@@ -48,7 +48,8 @@ impl Default for SireStatsData {
     }
 }
 
-/// Load sire stats from JSON file
+/// Load sire stats from JSON file (to be integrated with model)
+#[allow(dead_code)]
 pub fn load_sire_stats<P: AsRef<Path>>(path: P) -> Result<&'static SireStatsData> {
     let path = path.as_ref();
 

@@ -120,6 +120,7 @@ impl HorseFeatures {
     }
 
     /// Convert to array with blood features (43 features - requires retrained model)
+    #[allow(dead_code)]
     pub fn to_array_with_blood(&self) -> [f32; 43] {
         [
             // Basic (5)

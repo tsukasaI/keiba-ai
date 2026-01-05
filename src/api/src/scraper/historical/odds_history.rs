@@ -13,9 +13,11 @@ use regex::Regex;
 use scraper::{Html, Selector};
 use std::collections::HashMap;
 
-/// Parser for historical odds pages
+/// Parser for historical odds pages (used when --include-odds is specified)
+#[allow(dead_code)]
 pub struct HistoricalOddsParser;
 
+#[allow(dead_code)]
 impl HistoricalOddsParser {
     /// Parse exacta (馬単) odds
     ///

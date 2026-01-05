@@ -1501,16 +1501,31 @@ pub async fn run_backtest_historical(
     db_path: PathBuf,
     start: String,
     end: String,
-    bet_type: String,
-    _model_path: Option<PathBuf>,
-    _calibration_path: Option<PathBuf>,
+    bet_type_str: String,
+    model_path: Option<PathBuf>,
+    calibration_path: Option<PathBuf>,
     ev_threshold: f64,
     _format: String,
 ) -> anyhow::Result<()> {
     use chrono::NaiveDate;
     use colored::Colorize;
+    use indicatif::{ProgressBar, ProgressStyle};
+    use ndarray::Array2;
 
+    use crate::backtest::BetType;
+    use crate::betting::calculate_ev;
+    use crate::calibration::Calibrator;
+    use crate::exacta::calculate_exacta_probs;
+    use crate::model::PositionModel;
+    use crate::quinella::calculate_quinella_probs;
     use crate::storage::RaceRepository;
+    use crate::trifecta::calculate_trifecta_probs;
+    use crate::trio::calculate_trio_probs;
+    use crate::wide::calculate_wide_probs;
+
+    // Parse bet type
+    let bet_type = BetType::from_str(&bet_type_str)
+        .ok_or_else(|| anyhow::anyhow!("Invalid bet type: {}", bet_type_str))?;
 
     // Parse dates
     let start_date = NaiveDate::parse_from_str(&start, "%Y-%m-%d")
@@ -1525,8 +1540,8 @@ pub async fn run_backtest_historical(
         end_date
     );
     println!("Database: {}", db_path.display());
-    println!("Bet type: {}", bet_type);
-    println!("EV threshold: {}", ev_threshold);
+    println!("Bet type: {}", bet_type.name());
+    println!("EV threshold: {:.2}", ev_threshold);
     println!();
 
     // Check database exists
@@ -1536,6 +1551,32 @@ pub async fn run_backtest_historical(
             db_path.display()
         ));
     }
+
+    // Load model
+    let model_file = model_path.unwrap_or_else(|| PathBuf::from("data/models/position_model.onnx"));
+    println!("Loading model: {}", model_file.display());
+    let model = PositionModel::load(&model_file)?;
+
+    // Load calibrator
+    let calibrator = if let Some(cal_path) = calibration_path {
+        println!("Loading calibrator: {}", cal_path.display());
+        match Calibrator::from_file(&cal_path) {
+            Ok(cal) => cal,
+            Err(e) => {
+                println!("{}: Failed to load calibrator: {}", "Warning".yellow(), e);
+                Calibrator::None
+            }
+        }
+    } else {
+        // Try default path
+        let default_cal = PathBuf::from("data/models/calibration.json");
+        if default_cal.exists() {
+            println!("Loading calibrator: {}", default_cal.display());
+            Calibrator::from_file(&default_cal).unwrap_or(Calibrator::None)
+        } else {
+            Calibrator::None
+        }
+    };
 
     // Load repository
     let repo = RaceRepository::new(&db_path)?;
@@ -1554,20 +1595,386 @@ pub async fn run_backtest_historical(
         ));
     }
 
-    // TODO: Implement full backtest logic
-    // This would involve:
-    // 1. Loading model
-    // 2. For each race, building features from entries
-    // 3. Running inference
-    // 4. Comparing predictions with actual results
-    // 5. Calculating ROI
-
     println!();
-    println!(
-        "{}",
-        "Historical backtest not fully implemented yet.".yellow()
+
+    // Track results
+    let mut total_bets = 0usize;
+    let mut total_wins = 0usize;
+    let mut total_wagered = 0.0f64;
+    let mut total_returned = 0.0f64;
+    let mut races_processed = 0usize;
+    let mut races_skipped = 0usize;
+
+    // Progress bar
+    let pb = ProgressBar::new(races.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) {msg}")
+            .unwrap()
+            .progress_chars("=>-"),
     );
-    println!("Found {} races. Full backtest logic coming soon.", races.len());
+
+    for race in &races {
+        pb.set_message(format!("{}", race.race_id));
+
+        // Get entries for this race
+        let entries = repo.get_race_entries(&race.race_id)?;
+
+        // Skip races with too few entries
+        if entries.len() < bet_type.min_horses() {
+            races_skipped += 1;
+            pb.inc(1);
+            continue;
+        }
+
+        // Skip races without complete result data
+        let valid_entries: Vec<_> = entries
+            .iter()
+            .filter(|e| e.finish_position.is_some() && e.win_odds.is_some())
+            .collect();
+
+        if valid_entries.len() < bet_type.min_horses() {
+            races_skipped += 1;
+            pb.inc(1);
+            continue;
+        }
+
+        // Build feature array from entries
+        // Using simplified features based on available data
+        let n_horses = valid_entries.len();
+        let mut features = Array2::<f32>::zeros((n_horses, 39));
+
+        for (i, entry) in valid_entries.iter().enumerate() {
+            // Build 39-feature vector with available data and defaults
+            let odds_log = entry.win_odds.map(|o| o.ln() as f32).unwrap_or(2.0);
+
+            // Feature indices (matching FEATURE_NAMES order):
+            // 0: horse_age_num
+            features[[i, 0]] = entry.horse_age.unwrap_or(4) as f32;
+            // 1: horse_sex_encoded (0=牝, 1=牡, 2=セ)
+            features[[i, 1]] = match entry.horse_sex.as_deref() {
+                Some("牝") => 0.0,
+                Some("牡") => 1.0,
+                Some("セ") | Some("騸") => 2.0,
+                _ => 1.0,
+            };
+            // 2: post_position_num
+            features[[i, 2]] = entry.post_position as f32;
+            // 3: weight_carried
+            features[[i, 3]] = entry.weight_carried.unwrap_or(55.0) as f32;
+            // 4: horse_weight
+            features[[i, 4]] = entry.horse_weight.unwrap_or(480) as f32;
+            // 5-9: jockey/trainer stats (defaults)
+            features[[i, 5]] = 0.1;  // jockey_win_rate
+            features[[i, 6]] = 0.3;  // jockey_place_rate
+            features[[i, 7]] = 0.1;  // trainer_win_rate
+            features[[i, 8]] = 100.0; // jockey_races
+            features[[i, 9]] = 100.0; // trainer_races
+            // 10-13: race conditions
+            features[[i, 10]] = race.distance as f32;
+            features[[i, 11]] = if race.surface == "turf" { 1.0 } else { 0.0 };
+            features[[i, 12]] = if race.surface == "dirt" { 1.0 } else { 0.0 };
+            features[[i, 13]] = match race.track_condition.as_deref() {
+                Some("良") => 0.0,
+                Some("稍重") => 1.0,
+                Some("重") => 2.0,
+                Some("不良") => 3.0,
+                _ => 0.0,
+            };
+            // 14-21: past performance (defaults based on popularity proxy)
+            let popularity_proxy = 1.0 / (1.0 + odds_log.exp());
+            features[[i, 14]] = 5.0 - popularity_proxy * 3.0; // avg_position_last_3
+            features[[i, 15]] = 5.0 - popularity_proxy * 3.0; // avg_position_last_5
+            features[[i, 16]] = popularity_proxy * 0.2; // win_rate_last_3
+            features[[i, 17]] = popularity_proxy * 0.2; // win_rate_last_5
+            features[[i, 18]] = popularity_proxy * 0.4; // place_rate_last_3
+            features[[i, 19]] = popularity_proxy * 0.4; // place_rate_last_5
+            features[[i, 20]] = 5.0 - popularity_proxy * 3.0; // last_position
+            features[[i, 21]] = 10.0; // career_races
+            // 22: odds_log
+            features[[i, 22]] = odds_log;
+            // 23-25: running style (from corner positions if available)
+            let early = entry.corner_1.or(entry.corner_2).unwrap_or(n_horses as u8 / 2) as f32;
+            let late = entry.corner_4.or(entry.corner_3).unwrap_or(n_horses as u8 / 2) as f32;
+            features[[i, 23]] = early / n_horses as f32; // early_position
+            features[[i, 24]] = late / n_horses as f32;  // late_position
+            features[[i, 25]] = late - early;            // position_change
+            // 26-32: aptitude features (defaults)
+            features[[i, 26]] = 0.5; // aptitude_sprint
+            features[[i, 27]] = 0.5; // aptitude_mile
+            features[[i, 28]] = 0.5; // aptitude_intermediate
+            features[[i, 29]] = 0.5; // aptitude_long
+            features[[i, 30]] = 0.5; // aptitude_turf
+            features[[i, 31]] = 0.5; // aptitude_dirt
+            features[[i, 32]] = 0.5; // aptitude_course
+            // 33-35: pace features
+            features[[i, 33]] = entry.last_3f.unwrap_or(35.0); // last_3f_avg
+            features[[i, 34]] = entry.last_3f.unwrap_or(34.0); // last_3f_best
+            features[[i, 35]] = entry.last_3f.unwrap_or(35.0); // last_3f_last
+            // 36-38: race classification
+            features[[i, 36]] = entry.weight_change.unwrap_or(0) as f32; // weight_change_kg
+            features[[i, 37]] = if race.grade.is_some() { 1.0 } else { 0.0 }; // is_graded_race
+            features[[i, 38]] = match race.grade.as_deref() {
+                Some("G1") => 1.0,
+                Some("G2") => 2.0,
+                Some("G3") => 3.0,
+                Some("L") => 4.0,
+                Some("OP") => 5.0,
+                _ => 6.0,
+            }; // grade_level
+        }
+
+        // Run inference
+        let probs = match model.predict(features) {
+            Ok(p) => p,
+            Err(_) => {
+                races_skipped += 1;
+                pb.inc(1);
+                continue;
+            }
+        };
+
+        // Extract win probabilities and apply calibration
+        let mut win_probs_vec: Vec<f64> = probs.iter().map(|p| p[0]).collect();
+
+        // Apply calibration
+        win_probs_vec = win_probs_vec
+            .iter()
+            .map(|&p| calibrator.calibrate(p))
+            .collect();
+
+        // Normalize probabilities
+        let sum: f64 = win_probs_vec.iter().sum();
+        if sum > 0.0 {
+            win_probs_vec.iter_mut().for_each(|p| *p /= sum);
+        }
+
+        // Build HashMap with horse indices as keys
+        let win_probs: std::collections::HashMap<String, f64> = win_probs_vec
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| (i.to_string(), p))
+            .collect();
+
+        // Calculate combination probabilities based on bet type
+        // These return HashMap<(String, String), f64> or similar
+        let min_prob = 0.001;
+        let combo_probs: Vec<(Vec<usize>, f64)> = match bet_type {
+            BetType::Exacta => {
+                let probs = calculate_exacta_probs(&win_probs, min_prob);
+                probs
+                    .into_iter()
+                    .map(|((a, b), p)| (vec![a.parse().unwrap_or(0), b.parse().unwrap_or(0)], p))
+                    .collect()
+            }
+            BetType::Trifecta => {
+                let probs = calculate_trifecta_probs(&win_probs, min_prob);
+                probs
+                    .into_iter()
+                    .map(|((a, b, c), p)| {
+                        (
+                            vec![
+                                a.parse().unwrap_or(0),
+                                b.parse().unwrap_or(0),
+                                c.parse().unwrap_or(0),
+                            ],
+                            p,
+                        )
+                    })
+                    .collect()
+            }
+            BetType::Quinella => {
+                let probs = calculate_quinella_probs(&win_probs, min_prob);
+                probs
+                    .into_iter()
+                    .map(|(set, p)| {
+                        let mut combo: Vec<usize> = set
+                            .into_iter()
+                            .map(|s| s.parse().unwrap_or(0))
+                            .collect();
+                        combo.sort();
+                        (combo, p)
+                    })
+                    .collect()
+            }
+            BetType::Trio => {
+                let probs = calculate_trio_probs(&win_probs, min_prob);
+                probs
+                    .into_iter()
+                    .map(|(set, p)| {
+                        let mut combo: Vec<usize> = set
+                            .into_iter()
+                            .map(|s| s.parse().unwrap_or(0))
+                            .collect();
+                        combo.sort();
+                        (combo, p)
+                    })
+                    .collect()
+            }
+            BetType::Wide => {
+                let probs = calculate_wide_probs(&win_probs, min_prob);
+                probs
+                    .into_iter()
+                    .map(|(set, p)| {
+                        let mut combo: Vec<usize> = set
+                            .into_iter()
+                            .map(|s| s.parse().unwrap_or(0))
+                            .collect();
+                        combo.sort();
+                        (combo, p)
+                    })
+                    .collect()
+            }
+        };
+
+        // Get actual results (finish positions)
+        let mut sorted_entries: Vec<_> = valid_entries.iter().enumerate().collect();
+        sorted_entries.sort_by_key(|(_, e)| e.finish_position.unwrap_or(99));
+
+        let actual_top3: Vec<usize> = sorted_entries
+            .iter()
+            .take(3)
+            .map(|(idx, _)| *idx)
+            .collect();
+
+        // Determine winning combinations
+        let winning_combo: Vec<usize> = match bet_type {
+            BetType::Exacta => actual_top3.iter().take(2).cloned().collect(),
+            BetType::Trifecta => actual_top3.clone(),
+            BetType::Quinella => {
+                let mut combo: Vec<usize> = actual_top3.iter().take(2).cloned().collect();
+                combo.sort();
+                combo
+            }
+            BetType::Trio => {
+                let mut combo = actual_top3.clone();
+                combo.sort();
+                combo
+            }
+            BetType::Wide => {
+                // Any pair from top 3 wins
+                vec![] // We'll check differently for wide
+            }
+        };
+
+        // Evaluate each high-EV combination
+        for (combo, prob) in &combo_probs {
+            // Use win_odds from entries to estimate combination odds
+            // This is a rough approximation since we don't have actual combination odds
+            // Returns decimal odds (e.g., 9.64x)
+            let combo_odds_decimal = match bet_type {
+                BetType::Exacta | BetType::Quinella => {
+                    if combo.len() >= 2 {
+                        let o1 = valid_entries[combo[0]].win_odds.unwrap_or(10.0);
+                        let o2 = valid_entries[combo[1]].win_odds.unwrap_or(10.0);
+                        (o1 * o2).sqrt() * 2.0 // Rough approximation
+                    } else {
+                        10.0
+                    }
+                }
+                BetType::Trifecta | BetType::Trio => {
+                    if combo.len() >= 3 {
+                        let o1 = valid_entries[combo[0]].win_odds.unwrap_or(10.0);
+                        let o2 = valid_entries[combo[1]].win_odds.unwrap_or(10.0);
+                        let o3 = valid_entries[combo[2]].win_odds.unwrap_or(10.0);
+                        (o1 * o2 * o3).powf(1.0 / 3.0) * 5.0
+                    } else {
+                        50.0
+                    }
+                }
+                BetType::Wide => {
+                    if combo.len() >= 2 {
+                        let o1 = valid_entries[combo[0]].win_odds.unwrap_or(10.0);
+                        let o2 = valid_entries[combo[1]].win_odds.unwrap_or(10.0);
+                        (o1 * o2).sqrt() * 0.5
+                    } else {
+                        3.0
+                    }
+                }
+            };
+
+            // Convert to Japanese format (multiply by 100)
+            let combo_odds = combo_odds_decimal * 100.0;
+
+            let ev = calculate_ev(*prob, combo_odds);
+
+            if ev >= ev_threshold {
+                total_bets += 1;
+                total_wagered += 100.0; // ¥100 per bet
+
+                // Check if this combo won
+                let won = match bet_type {
+                    BetType::Exacta | BetType::Trifecta => *combo == winning_combo,
+                    BetType::Quinella | BetType::Trio => {
+                        let mut sorted_combo = combo.clone();
+                        sorted_combo.sort();
+                        sorted_combo == winning_combo
+                    }
+                    BetType::Wide => {
+                        // Check if both horses in combo are in top 3
+                        combo.len() >= 2
+                            && actual_top3.contains(&combo[0])
+                            && actual_top3.contains(&combo[1])
+                    }
+                };
+
+                if won {
+                    total_wins += 1;
+                    total_returned += 100.0 * combo_odds_decimal;
+                }
+            }
+        }
+
+        races_processed += 1;
+        pb.inc(1);
+    }
+
+    pb.finish_with_message("Done");
+    println!();
+
+    // Print results
+    println!("{}", "═".repeat(50).cyan());
+    println!("{}", "Backtest Results".green().bold());
+    println!("{}", "═".repeat(50).cyan());
+    println!();
+    println!("Races processed: {}", races_processed);
+    println!("Races skipped:   {}", races_skipped);
+    println!();
+    println!("{}", "Betting Statistics".yellow().bold());
+    println!("{}", "─".repeat(30));
+    println!("Total bets:      {}", total_bets);
+    println!("Total wins:      {}", total_wins);
+    println!(
+        "Hit rate:        {:.2}%",
+        if total_bets > 0 {
+            (total_wins as f64 / total_bets as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
+    println!();
+    println!("{}", "Financial Results".yellow().bold());
+    println!("{}", "─".repeat(30));
+    println!("Total wagered:   ¥{:.0}", total_wagered);
+    println!("Total returned:  ¥{:.0}", total_returned);
+    println!(
+        "Profit/Loss:     ¥{:.0}",
+        total_returned - total_wagered
+    );
+    println!(
+        "ROI:             {:.2}%",
+        if total_wagered > 0.0 {
+            ((total_returned - total_wagered) / total_wagered) * 100.0
+        } else {
+            0.0
+        }
+    );
+    println!();
+
+    // Add warning about odds estimation
+    println!("{}", "⚠ Note".yellow().bold());
+    println!("Combination odds are estimated from win odds.");
+    println!("For accurate results, scrape with --include-odds.");
 
     Ok(())
 }

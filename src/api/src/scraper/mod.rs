@@ -10,6 +10,8 @@ pub mod parsers;
 pub mod rate_limiter;
 pub mod sire_stats;
 
+// Blood features (infrastructure ready, to be integrated with model)
+#[allow(unused_imports)]
 pub use sire_stats::{BloodFeatures, load_sire_stats};
 
 pub use browser::Browser;

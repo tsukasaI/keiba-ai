@@ -21,7 +21,8 @@ pub struct Browser {
     handle: tokio::task::JoinHandle<()>,
 }
 
-/// Configuration for page loading
+/// Configuration for page loading behavior
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PageLoadConfig {
     /// Maximum time to wait for page load
@@ -113,7 +114,8 @@ impl Browser {
             .await
     }
 
-    /// Fetch page with retry logic
+    /// Fetch page with retry logic (for future use)
+    #[allow(dead_code)]
     pub async fn fetch_page_with_retry(
         &self,
         url: &str,

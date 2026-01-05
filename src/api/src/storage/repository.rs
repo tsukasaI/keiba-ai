@@ -52,7 +52,8 @@ pub struct HistoricalRaceEntry {
     pub popularity: Option<u8>,
 }
 
-/// Horse statistics snapshot at race time
+/// Horse statistics snapshot at race time (for future feature engineering)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct HorseStatsSnapshot {
     pub career_races: Option<i32>,
@@ -73,7 +74,8 @@ pub struct HorseStatsSnapshot {
     pub broodmare_sire: Option<String>,
 }
 
-/// Jockey statistics snapshot at race time
+/// Jockey statistics snapshot at race time (for future feature engineering)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct JockeyStatsSnapshot {
     pub total_races: Option<i32>,
@@ -82,7 +84,8 @@ pub struct JockeyStatsSnapshot {
     pub place_rate: Option<f64>,
 }
 
-/// Trainer statistics snapshot at race time
+/// Trainer statistics snapshot at race time (for future feature engineering)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct TrainerStatsSnapshot {
     pub total_races: Option<i32>,
@@ -192,7 +195,8 @@ impl RaceRepository {
         Ok(())
     }
 
-    /// Insert odds for a combination (upsert)
+    /// Insert odds for a combination (upsert) - used with --include-odds
+    #[allow(dead_code)]
     pub fn insert_odds(
         &self,
         race_id: &str,
@@ -211,7 +215,8 @@ impl RaceRepository {
         Ok(())
     }
 
-    /// Insert horse statistics snapshot
+    /// Insert horse statistics snapshot (for future feature engineering)
+    #[allow(dead_code)]
     pub fn insert_horse_stats(
         &self,
         race_id: &str,
@@ -251,7 +256,8 @@ impl RaceRepository {
         Ok(())
     }
 
-    /// Insert jockey statistics snapshot
+    /// Insert jockey statistics snapshot (for future feature engineering)
+    #[allow(dead_code)]
     pub fn insert_jockey_stats(
         &self,
         race_id: &str,
@@ -276,7 +282,8 @@ impl RaceRepository {
         Ok(())
     }
 
-    /// Insert trainer statistics snapshot
+    /// Insert trainer statistics snapshot (for future feature engineering)
+    #[allow(dead_code)]
     pub fn insert_trainer_stats(
         &self,
         race_id: &str,
@@ -353,7 +360,8 @@ impl RaceRepository {
         Ok(races)
     }
 
-    /// Get entries for a race
+    /// Get entries for a race (used by backtest-historical)
+    #[allow(dead_code)]
     pub fn get_race_entries(&self, race_id: &str) -> Result<Vec<HistoricalRaceEntry>> {
         let mut stmt = self.conn.prepare(
             r#"
@@ -400,7 +408,8 @@ impl RaceRepository {
         Ok(entries)
     }
 
-    /// Get odds for a race and bet type
+    /// Get odds for a race and bet type (used by backtest-historical)
+    #[allow(dead_code)]
     pub fn get_odds(&self, race_id: &str, bet_type: &str) -> Result<HashMap<String, f64>> {
         let mut stmt = self.conn.prepare(
             r#"
@@ -442,7 +451,8 @@ impl RaceRepository {
         Ok(count)
     }
 
-    /// Get total odds count
+    /// Get total odds count (for debugging/stats)
+    #[allow(dead_code)]
     pub fn get_odds_count(&self) -> Result<i32> {
         let count: i32 = self.conn.query_row(
             "SELECT COUNT(*) FROM odds_snapshots",

@@ -40,7 +40,8 @@ impl RaceListParser {
         Ok(race_ids)
     }
 
-    /// Parse and return race IDs grouped by racecourse
+    /// Parse and return race IDs grouped by racecourse (for advanced filtering)
+    #[allow(dead_code)]
     pub fn parse_grouped(html: &str) -> Result<Vec<(String, Vec<String>)>> {
         let document = Html::parse_document(html);
         let mut grouped: Vec<(String, Vec<String>)> = Vec::new();

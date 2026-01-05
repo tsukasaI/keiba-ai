@@ -33,7 +33,8 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
-    /// Create a config for network operations
+    /// Create a config for network operations (for future use)
+    #[allow(dead_code)]
     pub fn network() -> Self {
         Self {
             max_retries: 3,

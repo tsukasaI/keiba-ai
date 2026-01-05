@@ -9,6 +9,8 @@ pub mod odds_history;
 pub mod race_list;
 pub mod race_result;
 
+// Re-exports (some used in CLI, some for future use)
+#[allow(unused_imports)]
 pub use odds_history::HistoricalOddsParser;
 pub use race_list::RaceListParser;
 pub use race_result::RaceResultParser;
@@ -27,32 +29,33 @@ pub fn race_result_url(race_id: &str) -> String {
     format!("{}/race/{}/", DB_URL, race_id)
 }
 
+// Historical odds URL builders (used with --include-odds)
+#[allow(dead_code)]
 /// Build historical exacta odds URL
-/// URL: https://db.netkeiba.com/odds/RACEID/umatan/
 pub fn exacta_odds_history_url(race_id: &str) -> String {
     format!("{}/odds/{}/umatan/", DB_URL, race_id)
 }
 
+#[allow(dead_code)]
 /// Build historical trifecta odds URL
-/// URL: https://db.netkeiba.com/odds/RACEID/sanrentan/
 pub fn trifecta_odds_history_url(race_id: &str) -> String {
     format!("{}/odds/{}/sanrentan/", DB_URL, race_id)
 }
 
+#[allow(dead_code)]
 /// Build historical quinella odds URL
-/// URL: https://db.netkeiba.com/odds/RACEID/umaren/
 pub fn quinella_odds_history_url(race_id: &str) -> String {
     format!("{}/odds/{}/umaren/", DB_URL, race_id)
 }
 
+#[allow(dead_code)]
 /// Build historical trio odds URL
-/// URL: https://db.netkeiba.com/odds/RACEID/sanrenpuku/
 pub fn trio_odds_history_url(race_id: &str) -> String {
     format!("{}/odds/{}/sanrenpuku/", DB_URL, race_id)
 }
 
+#[allow(dead_code)]
 /// Build historical wide odds URL
-/// URL: https://db.netkeiba.com/odds/RACEID/wide/
 pub fn wide_odds_history_url(race_id: &str) -> String {
     format!("{}/odds/{}/wide/", DB_URL, race_id)
 }
