@@ -6,13 +6,13 @@
   "verbose": -1,
   "n_jobs": -1,
   "seed": 42,
-  "num_leaves": 57,
-  "learning_rate": 0.2536999076681771,
-  "feature_fraction": 0.8659969709057025,
-  "bagging_fraction": 0.7993292420985183,
-  "bagging_freq": 2,
-  "min_child_samples": 19,
-  "reg_alpha": 3.3323645788192616e-08,
-  "reg_lambda": 0.6245760287469887,
-  "max_depth": 10
+  "num_leaves": 22,
+  "learning_rate": 0.042226454543318526,
+  "feature_fraction": 0.7960382726851494,
+  "bagging_fraction": 0.9350342005492378,
+  "bagging_freq": 1,
+  "min_child_samples": 72,
+  "reg_alpha": 7.294063497130193e-05,
+  "reg_lambda": 6.213353493325739,
+  "max_depth": 7
 }

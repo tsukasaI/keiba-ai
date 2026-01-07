@@ -120,10 +120,10 @@ class ModelOptimizer:
         try:
             # Get features and target
             X_train, y_train = self.data_loader.get_features_and_target(
-                self._train_df, FEATURES
+                self._train_df
             )
             X_val, y_val = self.data_loader.get_features_and_target(
-                self._val_df, FEATURES
+                self._val_df
             )
 
             # Train model
@@ -131,8 +131,6 @@ class ModelOptimizer:
             model.train(
                 X_train, y_train,
                 X_val, y_val,
-                num_boost_round=500,
-                early_stopping_rounds=30,
             )
 
             # Calculate validation loss

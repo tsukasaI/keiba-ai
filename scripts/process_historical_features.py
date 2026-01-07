@@ -28,29 +28,75 @@ OUTPUT_PATH = PROCESSED_DATA_DIR / "features.parquet"
 BACKTEST_PATH = PROCESSED_DATA_DIR / "backtest_features.parquet"
 
 
-def compute_rolling_stats(df: pd.DataFrame, group_col: str, value_col: str,
-                          windows: list = [3, 5]) -> pd.DataFrame:
-    """Compute rolling statistics for a group."""
-    result = df.copy()
+def compute_jockey_trainer_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute rolling jockey and trainer statistics.
 
-    for window in windows:
-        # Sort by date for proper rolling
-        sorted_df = df.sort_values(['レース日付', 'レースID'])
+    Calculates:
+    - jockey_win_rate: Rolling win rate (last 50 races)
+    - jockey_place_rate: Rolling place rate (top 3)
+    - trainer_win_rate: Rolling win rate (last 50 races)
+    - jockey_races: Total races ridden
+    - trainer_races: Total races trained
+    """
+    logger.info("Computing jockey/trainer statistics...")
 
-        # Calculate rolling mean (excluding current row)
-        result[f'{group_col}_avg_{window}'] = (
-            sorted_df.groupby(group_col)[value_col]
-            .transform(lambda x: x.shift().rolling(window, min_periods=1).mean())
-        )
+    # Sort by date for proper time-series calculation
+    df = df.sort_values(['レース日付', 'レースID', '馬番']).copy()
+    df = df.reset_index(drop=True)
 
-        # Calculate rolling win rate
-        sorted_df['_win'] = (sorted_df['着順'] == 1).astype(float)
-        result[f'{group_col}_win_rate_{window}'] = (
-            sorted_df.groupby(group_col)['_win']
-            .transform(lambda x: x.shift().rolling(window, min_periods=1).mean())
-        )
+    # Create win/place flags
+    df['_win'] = (df['着順'] == 1).astype(float)
+    df['_place'] = (df['着順'] <= 3).astype(float)
 
-    return result
+    # Rolling window size
+    window = 50
+
+    # Jockey stats - use expanding window with shift to avoid leakage
+    logger.info("  Computing jockey stats...")
+
+    # Sort and compute within groups
+    df['_jockey_cumwins'] = df.groupby('騎手')['_win'].transform(
+        lambda x: x.expanding().sum().shift(1)
+    )
+    df['_jockey_cumplaces'] = df.groupby('騎手')['_place'].transform(
+        lambda x: x.expanding().sum().shift(1)
+    )
+    df['_jockey_cumraces'] = df.groupby('騎手').cumcount()  # 0-indexed count before current
+
+    # Win rate: cumulative wins / cumulative races
+    df['jockey_win_rate'] = (
+        df['_jockey_cumwins'] / df['_jockey_cumraces'].replace(0, np.nan)
+    ).fillna(0.10).clip(0, 1)
+
+    # Place rate
+    df['jockey_place_rate'] = (
+        df['_jockey_cumplaces'] / df['_jockey_cumraces'].replace(0, np.nan)
+    ).fillna(0.30).clip(0, 1)
+
+    # Race count (add 1 since cumcount is 0-indexed)
+    df['jockey_races'] = (df['_jockey_cumraces'] + 1).clip(lower=1)
+
+    # Trainer stats
+    logger.info("  Computing trainer stats...")
+
+    df['_trainer_cumwins'] = df.groupby('調教師')['_win'].transform(
+        lambda x: x.expanding().sum().shift(1)
+    )
+    df['_trainer_cumraces'] = df.groupby('調教師').cumcount()
+
+    df['trainer_win_rate'] = (
+        df['_trainer_cumwins'] / df['_trainer_cumraces'].replace(0, np.nan)
+    ).fillna(0.10).clip(0, 1)
+
+    df['trainer_races'] = (df['_trainer_cumraces'] + 1).clip(lower=1)
+
+    # Clean up temporary columns
+    df = df.drop(columns=[c for c in df.columns if c.startswith('_')])
+
+    logger.info(f"  Jockey win rate range: {df['jockey_win_rate'].min():.3f} - {df['jockey_win_rate'].max():.3f}")
+    logger.info(f"  Trainer win rate range: {df['trainer_win_rate'].min():.3f} - {df['trainer_win_rate'].max():.3f}")
+
+    return df
 
 
 def create_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -82,13 +128,12 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     # 4: horse_weight (馬体重)
     result['馬体重'] = df['馬体重'].fillna(480)
 
-    # 5-9: jockey/trainer stats (compute rolling averages)
-    # For simplicity, use default values - can enhance later
-    result['jockey_win_rate'] = 0.10
-    result['jockey_place_rate'] = 0.30
-    result['trainer_win_rate'] = 0.10
-    result['jockey_races'] = 100.0
-    result['trainer_races'] = 100.0
+    # 5-9: jockey/trainer stats (from pre-computed rolling stats)
+    result['jockey_win_rate'] = df['jockey_win_rate'].fillna(0.10)
+    result['jockey_place_rate'] = df['jockey_place_rate'].fillna(0.30)
+    result['trainer_win_rate'] = df['trainer_win_rate'].fillna(0.10)
+    result['jockey_races'] = df['jockey_races'].fillna(1.0)
+    result['trainer_races'] = df['trainer_races'].fillna(1.0)
 
     # 10-13: race conditions
     result['distance_num'] = df['距離(m)'].fillna(1600)
@@ -170,6 +215,9 @@ def main():
     # Filter to complete entries (with finishing position)
     df = df[df['着順'].notna() & (df['着順'] > 0)]
     logger.info(f"After filtering: {len(df)} entries")
+
+    # Compute jockey/trainer stats first
+    df = compute_jockey_trainer_stats(df)
 
     # Create features
     features_df = create_features(df)
