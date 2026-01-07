@@ -1343,7 +1343,9 @@ pub async fn run_scrape_historical(
     use indicatif::{ProgressBar, ProgressStyle};
 
     use crate::scraper::historical::{
-        race_list_url, race_result_url, RaceListParser, RaceResultParser,
+        exacta_odds_history_url, quinella_odds_history_url, race_list_url, race_result_url,
+        trifecta_odds_history_url, trio_odds_history_url, wide_odds_history_url,
+        HistoricalOddsParser, RaceListParser, RaceResultParser,
     };
     use crate::scraper::Browser;
     use crate::storage::RaceRepository;
@@ -1460,8 +1462,42 @@ pub async fn run_scrape_historical(
                                     );
                                 }
 
-                                // TODO: Fetch odds if include_odds is true
-                                // This would require implementing odds fetching
+                                // Fetch odds if include_odds is true
+                                if include_odds {
+                                    // Fetch each bet type's odds
+                                    let odds_types: Vec<(&str, String, fn(&str) -> anyhow::Result<std::collections::HashMap<String, f64>>)> = vec![
+                                        ("exacta", exacta_odds_history_url(&race_id), HistoricalOddsParser::parse_exacta),
+                                        ("quinella", quinella_odds_history_url(&race_id), HistoricalOddsParser::parse_quinella),
+                                        ("trifecta", trifecta_odds_history_url(&race_id), HistoricalOddsParser::parse_trifecta),
+                                        ("trio", trio_odds_history_url(&race_id), HistoricalOddsParser::parse_trio),
+                                        ("wide", wide_odds_history_url(&race_id), HistoricalOddsParser::parse_wide),
+                                    ];
+
+                                    for (bet_type, url, parser) in odds_types {
+                                        match browser.fetch_page(&url).await {
+                                            Ok(html) => {
+                                                if let Ok(odds_map) = parser(&html) {
+                                                    let mut odds_count = 0;
+                                                    for (combo, odds) in odds_map {
+                                                        if repo.insert_odds(&race_id, bet_type, &combo, odds).is_ok() {
+                                                            odds_count += 1;
+                                                        }
+                                                    }
+                                                    if verbose && odds_count > 0 {
+                                                        println!("      {} {} odds saved", odds_count, bet_type);
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                if verbose {
+                                                    eprintln!("      Failed to fetch {} odds: {}", bet_type, e);
+                                                }
+                                            }
+                                        }
+                                        // Rate limiting between odds fetches
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
