@@ -5,19 +5,18 @@ Uses Optuna for Bayesian hyperparameter optimization.
 Optimizes for ROI using walk-forward backtesting.
 """
 
+import argparse
+import json
 import logging
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import optuna
 from optuna.samplers import TPESampler
 
-from src.models.config import LGBM_PARAMS, TRAINING_CONFIG, FEATURES
 from src.models.data_loader import RaceDataLoader
 from src.models.position_model import PositionProbabilityModel
-from src.models.trainer import ModelTrainer
-from src.models.backtester import Backtester
-from src.models.calibrator import ExactaCalibrator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -137,7 +136,6 @@ class ModelOptimizer:
             proba = model.predict_proba(X_val)
 
             # Multi-class log loss
-            import numpy as np
             eps = 1e-15
             proba = np.clip(proba, eps, 1 - eps)
             log_loss = -np.mean(
@@ -251,8 +249,6 @@ class ModelOptimizer:
         Args:
             path: Output file path
         """
-        import json
-
         best_params = self.get_best_params()
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -264,8 +260,6 @@ class ModelOptimizer:
 
 def main():
     """Run hyperparameter optimization from command line."""
-    import argparse
-
     parser = argparse.ArgumentParser(description="Optimize model hyperparameters")
     parser.add_argument("--n-trials", type=int, default=50, help="Number of trials")
     parser.add_argument("--model-type", type=str, default="lightgbm", help="Model type")

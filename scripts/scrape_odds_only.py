@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 """Scrape odds for existing races in the database."""
 
+import argparse
 import sqlite3
 import time
+from pathlib import Path
+
 import requests
 from bs4 import BeautifulSoup
-from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "data/historical/keiba.db"
 
@@ -87,35 +89,31 @@ def insert_odds(conn, race_id: str, bet_type: str, odds_dict: dict):
 
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(description="Scrape odds for existing races")
     parser.add_argument("--start", required=True, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", required=True, help="End date (YYYY-MM-DD)")
     parser.add_argument("--db", default=str(DB_PATH), help="Database path")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(args.db)
-    race_ids = get_race_ids(conn, args.start, args.end)
+    with sqlite3.connect(args.db) as conn:
+        race_ids = get_race_ids(conn, args.start, args.end)
+        print(f"Found {len(race_ids)} races in {args.start} to {args.end}")
 
-    print(f"Found {len(race_ids)} races in {args.start} to {args.end}")
+        total_odds = 0
+        for i, race_id in enumerate(race_ids):
+            print(f"[{i+1}/{len(race_ids)}] Fetching odds for {race_id}...", end="")
 
-    total_odds = 0
-    for i, race_id in enumerate(race_ids):
-        print(f"[{i+1}/{len(race_ids)}] Fetching odds for {race_id}...", end="")
+            odds = fetch_exacta_odds(race_id)
+            if odds:
+                insert_odds(conn, race_id, "exacta", odds)
+                total_odds += len(odds)
+                print(f" {len(odds)} combinations")
+            else:
+                print(" no odds found")
 
-        odds = fetch_exacta_odds(race_id)
-        if odds:
-            insert_odds(conn, race_id, "exacta", odds)
-            total_odds += len(odds)
-            print(f" {len(odds)} combinations")
-        else:
-            print(" no odds found")
+            # Rate limiting
+            time.sleep(0.5)
 
-        # Rate limiting
-        time.sleep(0.5)
-
-    conn.close()
     print(f"\nDone! Scraped {total_odds} total odds entries.")
 
 

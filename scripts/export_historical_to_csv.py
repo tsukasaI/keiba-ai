@@ -22,8 +22,6 @@ def export_to_csv():
     """Export SQLite data to CSV format."""
     print(f"Reading from: {DB_PATH}")
 
-    conn = sqlite3.connect(DB_PATH)
-
     # Join races and entries
     query = """
     SELECT
@@ -69,11 +67,12 @@ def export_to_csv():
     FROM races r
     JOIN race_entries e ON r.race_id = e.race_id
     WHERE e.finish_position IS NOT NULL
+      AND CAST(substr(r.race_id, 5, 2) AS INTEGER) BETWEEN 1 AND 10  -- JRA only
     ORDER BY r.race_date, r.race_id, e.finish_position
     """
 
-    df = pd.read_sql_query(query, conn)
-    conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        df = pd.read_sql_query(query, conn)
 
     print(f"Loaded {len(df)} entries from {df['レースID'].nunique()} races")
     print(f"Date range: {df['レース日付'].min()} to {df['レース日付'].max()}")
