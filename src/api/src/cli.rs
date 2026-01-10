@@ -731,13 +731,14 @@ pub async fn run_live(
     verbose: bool,
 ) -> anyhow::Result<()> {
     use crate::scraper::{
+        browser::PageLoadConfig,
         cache::{Cache, CacheCategory},
         feature_builder::FeatureBuilder,
         parsers::{
             HorseParser, HorseProfile, JockeyParser, JockeyProfile, RaceCardParser,
             TrainerParser, TrainerProfile,
         },
-        Browser, RateLimiter,
+        selectors, Browser, RateLimiter,
     };
     use colored::Colorize;
     use futures::stream::{self, StreamExt};
@@ -911,7 +912,8 @@ pub async fn run_live(
                         FetchTask::Horse(id) => {
                             pb.set_message(format!("horse:{}", &id[..id.len().min(8)]));
                             let url = crate::scraper::horse_url(&id);
-                            match browser.fetch_page(&url).await {
+                            let config = PageLoadConfig::with_selector(selectors::HORSE_PROFILE);
+                            match browser.fetch_page_with_config(&url, &config).await {
                                 Ok(html) => match HorseParser::parse(&html, &id) {
                                     Ok(profile) => {
                                         let _ = cache.set(CacheCategory::Horse, &id, &profile);
@@ -932,7 +934,8 @@ pub async fn run_live(
                         FetchTask::Jockey(id) => {
                             pb.set_message(format!("jockey:{}", &id[..id.len().min(8)]));
                             let url = crate::scraper::jockey_url(&id);
-                            match browser.fetch_page(&url).await {
+                            let config = PageLoadConfig::with_selector(selectors::JOCKEY_PROFILE);
+                            match browser.fetch_page_with_config(&url, &config).await {
                                 Ok(html) => match JockeyParser::parse(&html, &id) {
                                     Ok(profile) => {
                                         let _ = cache.set(CacheCategory::Jockey, &id, &profile);
@@ -953,7 +956,8 @@ pub async fn run_live(
                         FetchTask::Trainer(id) => {
                             pb.set_message(format!("trainer:{}", &id[..id.len().min(8)]));
                             let url = crate::scraper::trainer_url(&id);
-                            match browser.fetch_page(&url).await {
+                            let config = PageLoadConfig::with_selector(selectors::TRAINER_PROFILE);
+                            match browser.fetch_page_with_config(&url, &config).await {
                                 Ok(html) => match TrainerParser::parse(&html, &id) {
                                     Ok(profile) => {
                                         let _ = cache.set(CacheCategory::Trainer, &id, &profile);
@@ -1232,9 +1236,11 @@ async fn fetch_race_card_with_browser(
     browser: &crate::scraper::Browser,
     rate_limiter: &crate::scraper::RateLimiter,
 ) -> anyhow::Result<String> {
+    use crate::scraper::{browser::PageLoadConfig, selectors};
     rate_limiter.acquire().await;
     let url = crate::scraper::race_card_url(race_id);
-    browser.fetch_page(&url).await
+    let config = PageLoadConfig::with_selector(selectors::RACE_CARD);
+    browser.fetch_page_with_config(&url, &config).await
 }
 
 /// Fetch odds from API

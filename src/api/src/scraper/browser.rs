@@ -22,15 +22,14 @@ pub struct Browser {
 }
 
 /// Configuration for page loading behavior
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PageLoadConfig {
     /// Maximum time to wait for page load
     pub timeout: Duration,
-    /// Minimum wait time after DOM ready
+    /// Minimum wait time after DOM ready (used as fallback)
     pub min_wait: Duration,
-    /// Whether to wait for network idle
-    pub wait_for_network_idle: bool,
+    /// CSS selector to wait for (faster than fixed delay)
+    pub wait_selector: Option<String>,
 }
 
 impl Default for PageLoadConfig {
@@ -38,7 +37,18 @@ impl Default for PageLoadConfig {
         Self {
             timeout: Duration::from_secs(30),
             min_wait: Duration::from_millis(500),
-            wait_for_network_idle: true,
+            wait_selector: None,
+        }
+    }
+}
+
+impl PageLoadConfig {
+    /// Create config with a specific selector to wait for
+    pub fn with_selector(selector: impl Into<String>) -> Self {
+        Self {
+            timeout: Duration::from_secs(30),
+            min_wait: Duration::from_millis(100), // Reduced fallback when using selector
+            wait_selector: Some(selector.into()),
         }
     }
 }
@@ -165,16 +175,45 @@ impl Browser {
 
     /// Wait for DOM to be ready using JavaScript detection
     async fn wait_for_dom_ready(&self, page: &Page, config: &PageLoadConfig) -> Result<()> {
-        // Check document.readyState using JavaScript
+        let poll_interval = Duration::from_millis(100);
+        let max_polls = 50; // 5 seconds max polling
+
+        // If selector is provided, wait for it (faster path)
+        if let Some(ref selector) = config.wait_selector {
+            let check_selector_script = format!(
+                r#"(function() {{ return document.querySelector('{}') !== null; }})()"#,
+                selector.replace('\'', "\\'")
+            );
+
+            for i in 0..max_polls {
+                match page.evaluate(check_selector_script.as_str()).await {
+                    Ok(result) => {
+                        if let Some(found) = result.value().and_then(|v| v.as_bool()) {
+                            if found {
+                                debug!("Selector '{}' found after {} polls", selector, i + 1);
+                                return Ok(());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Selector check failed (attempt {}): {}", i + 1, e);
+                    }
+                }
+                sleep(poll_interval).await;
+            }
+
+            // Selector not found, fall through to min_wait
+            warn!("Selector '{}' not found after polling, using fallback", selector);
+            sleep(config.min_wait).await;
+            return Ok(());
+        }
+
+        // No selector: use readyState polling (original behavior)
         let check_ready_script = r#"
             (function() {
                 return document.readyState === 'complete' || document.readyState === 'interactive';
             })()
         "#;
-
-        // Poll until ready or timeout
-        let poll_interval = Duration::from_millis(100);
-        let max_polls = 50; // 5 seconds max polling
 
         for i in 0..max_polls {
             match page.evaluate(check_ready_script).await {

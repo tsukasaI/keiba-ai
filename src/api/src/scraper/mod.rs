@@ -21,6 +21,18 @@ pub use rate_limiter::RateLimiter;
 pub const BASE_URL: &str = "https://race.netkeiba.com";
 pub const DB_URL: &str = "https://db.netkeiba.com";
 
+/// CSS selectors for DOM readiness detection (used by PageLoadConfig::with_selector)
+pub mod selectors {
+    /// Race card page - wait for horse list table
+    pub const RACE_CARD: &str = ".HorseList";
+    /// Horse profile page - wait for profile area
+    pub const HORSE_PROFILE: &str = ".db_prof_area_02";
+    /// Jockey profile page - wait for profile area
+    pub const JOCKEY_PROFILE: &str = ".db_prof_area_02";
+    /// Trainer profile page - wait for profile area
+    pub const TRAINER_PROFILE: &str = ".db_prof_area_02";
+}
+
 /// Build race card URL
 pub fn race_card_url(race_id: &str) -> String {
     format!("{}/race/shutuba.html?race_id={}", BASE_URL, race_id)
