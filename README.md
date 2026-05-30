@@ -67,7 +67,7 @@ uv run python src/data_collection/download_kaggle.py
 
 - [x] Phase 1: Data Collection & Exploration
 - [x] Phase 2: Model Building
-- [x] Phase 3: Backtesting (+19.3% ROI with calibration)
+- [x] Phase 3: Backtesting (+19.3% ROI with calibration — on post-race/estimated odds; not verified on real combination odds, see CLAUDE.md "Known Issues")
 - [x] Phase 4: Rust Inference API
 - [x] Phase 5: Live Race Scraper (netkeiba.com)
 - [x] Phase 6: Full Rust Migration (single binary, no Python dependency)
@@ -261,7 +261,7 @@ python scripts/retrain.py --optimize --n-trials 100
 
 - All 5 bet types (Exacta, Trifecta, Quinella, Trio, Wide)
 - Probability calibration (temperature scaling, binning)
-- Walk-forward backtesting (+19.3% ROI)
+- Walk-forward backtesting (+19.3% ROI on optimistic odds; unverified on real combination odds)
 - Multiple model types (LightGBM, CatBoost, XGBoost, Ensemble)
 - Hyperparameter optimization with Optuna
 - Live race scraper with colored CLI and progress bars

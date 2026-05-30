@@ -80,16 +80,26 @@ async fn main() -> anyhow::Result<()> {
             calibration,
             force,
             verbose,
-        } => cli::run_live(race_id, bet_type, ev_threshold, output, calibration, force, verbose).await,
+        } => {
+            cli::run_live(
+                race_id,
+                bet_type,
+                ev_threshold,
+                output,
+                calibration,
+                force,
+                verbose,
+            )
+            .await
+        }
         Commands::ScrapeHistorical {
             date,
             start,
             end,
             db,
-            include_odds,
             force,
             verbose,
-        } => cli::run_scrape_historical(date, start, end, db, include_odds, force, verbose).await,
+        } => cli::run_scrape_historical(date, start, end, db, force, verbose).await,
         Commands::BacktestHistorical {
             db,
             start,
@@ -99,7 +109,19 @@ async fn main() -> anyhow::Result<()> {
             calibration,
             ev_threshold,
             format,
-        } => cli::run_backtest_historical(db, start, end, bet_type, model, calibration, ev_threshold, format).await,
+        } => {
+            cli::run_backtest_historical(
+                db,
+                start,
+                end,
+                bet_type,
+                model,
+                calibration,
+                ev_threshold,
+                format,
+            )
+            .await
+        }
     }
 }
 

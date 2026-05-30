@@ -16,9 +16,6 @@ Usage:
 
     # Resume from last scraped date
     python src/data_collection/historical_scraper.py --resume
-
-    # Include odds data (slower but more complete)
-    python src/data_collection/historical_scraper.py --start 2024-01-01 --end 2024-12-31 --include-odds
 """
 
 import argparse
@@ -81,7 +78,7 @@ def generate_race_dates(start_date: date, end_date: date) -> list[date]:
 
 
 def scrape_date(cli_path: Path, db_path: Path, race_date: date,
-                include_odds: bool = False, force: bool = False,
+                force: bool = False,
                 verbose: bool = False) -> bool:
     """Scrape races for a single date using Rust CLI."""
     cmd = [
@@ -91,8 +88,6 @@ def scrape_date(cli_path: Path, db_path: Path, race_date: date,
         "--db", str(db_path),
     ]
 
-    if include_odds:
-        cmd.append("--include-odds")
     if force:
         cmd.append("--force")
     if verbose:
@@ -127,7 +122,6 @@ def scrape_date(cli_path: Path, db_path: Path, race_date: date,
 def scrape_date_range(
     start_date: date,
     end_date: date,
-    include_odds: bool = False,
     force: bool = False,
     verbose: bool = False,
 ) -> dict:
@@ -138,7 +132,6 @@ def scrape_date_range(
     logger.info(f"CLI: {cli_path}")
     logger.info(f"Database: {db_path}")
     logger.info(f"Date range: {start_date} to {end_date}")
-    logger.info(f"Include odds: {include_odds}")
 
     dates = generate_race_dates(start_date, end_date)
     logger.info(f"Total race dates to process: {len(dates)}")
@@ -150,7 +143,6 @@ def scrape_date_range(
 
         success = scrape_date(
             cli_path, db_path, race_date,
-            include_odds=include_odds,
             force=force,
             verbose=verbose,
         )
@@ -205,11 +197,6 @@ def main():
         help="Resume from last scraped date",
     )
     parser.add_argument(
-        "--include-odds",
-        action="store_true",
-        help="Include odds data (slower)",
-    )
-    parser.add_argument(
         "--force",
         action="store_true",
         help="Force re-scrape existing data",
@@ -246,7 +233,6 @@ def main():
     stats = scrape_date_range(
         start_date,
         end_date,
-        include_odds=args.include_odds,
         force=args.force,
         verbose=args.verbose,
     )

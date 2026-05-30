@@ -5,13 +5,9 @@
 //! - Race result pages
 //! - Historical odds pages
 
-pub mod odds_history;
 pub mod race_list;
 pub mod race_result;
 
-// Re-exports (some used in CLI, some for future use)
-#[allow(unused_imports)]
-pub use odds_history::HistoricalOddsParser;
 pub use race_list::RaceListParser;
 pub use race_result::RaceResultParser;
 
@@ -29,37 +25,6 @@ pub fn race_result_url(race_id: &str) -> String {
     format!("{}/race/{}/", DB_URL, race_id)
 }
 
-// Historical odds URL builders (used with --include-odds)
-#[allow(dead_code)]
-/// Build historical exacta odds URL
-pub fn exacta_odds_history_url(race_id: &str) -> String {
-    format!("{}/odds/{}/umatan/", DB_URL, race_id)
-}
-
-#[allow(dead_code)]
-/// Build historical trifecta odds URL
-pub fn trifecta_odds_history_url(race_id: &str) -> String {
-    format!("{}/odds/{}/sanrentan/", DB_URL, race_id)
-}
-
-#[allow(dead_code)]
-/// Build historical quinella odds URL
-pub fn quinella_odds_history_url(race_id: &str) -> String {
-    format!("{}/odds/{}/umaren/", DB_URL, race_id)
-}
-
-#[allow(dead_code)]
-/// Build historical trio odds URL
-pub fn trio_odds_history_url(race_id: &str) -> String {
-    format!("{}/odds/{}/sanrenpuku/", DB_URL, race_id)
-}
-
-#[allow(dead_code)]
-/// Build historical wide odds URL
-pub fn wide_odds_history_url(race_id: &str) -> String {
-    format!("{}/odds/{}/wide/", DB_URL, race_id)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,18 +39,5 @@ mod tests {
     fn test_race_result_url() {
         let url = race_result_url("202406050811");
         assert_eq!(url, "https://db.netkeiba.com/race/202406050811/");
-    }
-
-    #[test]
-    fn test_odds_urls() {
-        let race_id = "202406050811";
-        assert_eq!(
-            exacta_odds_history_url(race_id),
-            "https://db.netkeiba.com/odds/202406050811/umatan/"
-        );
-        assert_eq!(
-            trifecta_odds_history_url(race_id),
-            "https://db.netkeiba.com/odds/202406050811/sanrentan/"
-        );
     }
 }

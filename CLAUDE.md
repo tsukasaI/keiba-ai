@@ -80,7 +80,7 @@ All phases completed:
 
 - [x] **Phase 1**: Data Collection & Exploration - Kaggle dataset (2019-2021)
 - [x] **Phase 2**: Model Building - LightGBM position probability model
-- [x] **Phase 3**: Backtesting - Walk-forward validation (+19.3% ROI with calibration)
+- [x] **Phase 3**: Backtesting - Walk-forward validation (+19.3% ROI with calibration, on optimistic post-race/estimated odds — see Known Issues; not verified on real combination odds)
 - [x] **Phase 4**: Rust Inference API - REST API with all 5 bet types
 - [x] **Phase 5**: Live Race Scraper - netkeiba.com integration
 - [x] **Phase 6**: Full Rust Migration - Single binary with `live` command (no Python dependency)
@@ -97,7 +97,11 @@ All phases completed:
 - URL: https://db.netkeiba.com/
 - Period: 2022-2025 (scraped via `scrape-historical` command)
 - Format: SQLite database (`data/historical/keiba.db`)
-- Contents: Race results, pre-race odds (all combinations), horse/jockey/trainer data
+- Contents: Race results, **final win odds (単勝) per horse**, horse/jockey/trainer data
+- **NOT available**: pre-race odds for all combinations. netkeiba does not retain
+  full-combination odds after a race finishes — only winning-combination payouts
+  remain. Real all-combination odds require JRA-VAN (paid) or forward-capture of
+  live odds before post time.
 
 ### Future: JRA-VAN DataLab (Paid)
 - For production-grade data with training/workout info
@@ -321,9 +325,9 @@ Example: `202506050811` = 2025 Nakayama 5th meeting 8th day Race 11 (有馬記�
 #### Historical Data Commands
 
 ```bash
-# Scrape historical race data from db.netkeiba.com
+# Scrape historical race data from db.netkeiba.com (results + final win odds)
 keiba-api scrape-historical --date 2024-12-22 --db data/historical/keiba.db
-keiba-api scrape-historical --start 2022-01-01 --end 2025-12-31 --include-odds
+keiba-api scrape-historical --start 2022-01-01 --end 2025-12-31
 
 # Backtest with scraped historical data
 keiba-api backtest-historical --db data/historical/keiba.db \
@@ -339,9 +343,12 @@ Options for `scrape-historical`:
 - `--date`: Single date to scrape (YYYY-MM-DD)
 - `--start/--end`: Date range to scrape
 - `--db`: SQLite database path
-- `--include-odds`: Scrape exacta/trifecta odds (slower)
 - `--force`: Re-scrape existing data
 - `--verbose`: Show detailed progress
+
+> **Removed**: `--include-odds` previously targeted `db.netkeiba.com/odds/.../umatan/`,
+> which returns HTTP 404 — that endpoint does not exist, and netkeiba does not retain
+> full-combination odds after a race. The flag never populated any data and was removed.
 
 ## Important Notes
 
@@ -382,7 +389,7 @@ Options for `scrape-historical`:
 - ✅ Colored CLI output with progress bars
 - ✅ Historical data scraper (db.netkeiba.com, 2022-2025)
 - ✅ SQLite storage for historical race data
-- ✅ Comprehensive test suite (213 Python + 108 Rust tests)
+- ✅ Comprehensive test suite (213 Python + 100 Rust tests)
 
 ## Known Issues & Limitations
 
@@ -403,6 +410,25 @@ WARNING: Kaggle dataset contains only winning combination odds (post-race).
 ```
 
 **Mitigation**: The reported +19.3% ROI should be considered optimistic. Real-world ROI will likely be lower. For accurate backtesting, integrate JRA-VAN data.
+
+### Data Limitation: No Real Combination Odds Anywhere (ROI Unverified)
+
+**The EV strategy is not yet validated on real combination odds.** Both data sources
+lack pre-race odds for losing combinations, which the EV filter needs to decide bets:
+
+- **Kaggle**: only winning-combination payouts (post-race).
+- **netkeiba historical**: only final win odds (単勝) per horse + winning payouts. The
+  full-combination odds page (`/odds/.../umatan/`) returns 404, and live odds are not
+  retained after a race.
+
+As a result, `backtest-historical` **estimates** combination odds from win odds (geometric
+mean) when real odds are absent. It reads real odds from the `odds_snapshots` table when
+present and reports the real-vs-estimated split, but no current scraper populates that
+table. **Treat any ROI from estimated odds as indicative only, not verified.**
+
+**Paths to real verification**: (1) forward paper-trading — capture live odds (the `live`
+command already fetches them via netkeiba's JSON API) before post time, log EV bets, settle
+after results; or (2) JRA-VAN historical odds (paid).
 
 ### Performance: Live Command Latency
 
