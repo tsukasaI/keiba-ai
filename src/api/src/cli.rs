@@ -25,10 +25,7 @@ pub fn validate_race_id(race_id: &str) -> Result<(), String> {
 
     // Check all digits
     if !race_id.chars().all(|c| c.is_ascii_digit()) {
-        return Err(format!(
-            "Race ID must contain only digits: '{}'",
-            race_id
-        ));
+        return Err(format!("Race ID must contain only digits: '{}'", race_id));
     }
 
     // Parse and validate components
@@ -238,10 +235,6 @@ pub enum Commands {
         #[arg(long, default_value = "data/historical/keiba.db")]
         db: PathBuf,
 
-        /// Include all bet type odds (slower)
-        #[arg(long)]
-        include_odds: bool,
-
         /// Force re-scrape existing races
         #[arg(long)]
         force: bool,
@@ -416,16 +409,18 @@ pub async fn run_predict(
 
         predictions.top_trifectas = top_trifectas
             .iter()
-            .map(|((first, second, third), prob)| crate::types::TrifectaPrediction {
-                first: first.clone(),
-                second: second.clone(),
-                third: third.clone(),
-                probability: *prob,
-                odds: None,
-                expected_value: None,
-                edge: None,
-                recommended: false,
-            })
+            .map(
+                |((first, second, third), prob)| crate::types::TrifectaPrediction {
+                    first: first.clone(),
+                    second: second.clone(),
+                    third: third.clone(),
+                    probability: *prob,
+                    odds: None,
+                    expected_value: None,
+                    edge: None,
+                    recommended: false,
+                },
+            )
             .collect();
     }
 
@@ -545,7 +540,13 @@ fn print_table(response: &PredictResponse) {
     // Trifecta
     if !response.predictions.top_trifectas.is_empty() {
         println!("=== Top Trifectas ===");
-        for (i, t) in response.predictions.top_trifectas.iter().take(10).enumerate() {
+        for (i, t) in response
+            .predictions
+            .top_trifectas
+            .iter()
+            .take(10)
+            .enumerate()
+        {
             println!(
                 "  {:2}. {}-{}-{}: {:.4}%",
                 i + 1,
@@ -561,7 +562,13 @@ fn print_table(response: &PredictResponse) {
     // Quinella
     if !response.predictions.top_quinellas.is_empty() {
         println!("=== Top Quinellas ===");
-        for (i, q) in response.predictions.top_quinellas.iter().take(10).enumerate() {
+        for (i, q) in response
+            .predictions
+            .top_quinellas
+            .iter()
+            .take(10)
+            .enumerate()
+        {
             println!(
                 "  {:2}. {}-{}: {:.4}%",
                 i + 1,
@@ -735,8 +742,8 @@ pub async fn run_live(
         cache::{Cache, CacheCategory},
         feature_builder::FeatureBuilder,
         parsers::{
-            HorseParser, HorseProfile, JockeyParser, JockeyProfile, RaceCardParser,
-            TrainerParser, TrainerProfile,
+            HorseParser, HorseProfile, JockeyParser, JockeyProfile, RaceCardParser, TrainerParser,
+            TrainerProfile,
         },
         selectors, Browser, RateLimiter,
     };
@@ -794,7 +801,10 @@ pub async fn run_live(
         race_info.surface,
         race_info.distance
     );
-    eprintln!("  Entries: {} horses", format!("{}", entries.len()).yellow());
+    eprintln!(
+        "  Entries: {} horses",
+        format!("{}", entries.len()).yellow()
+    );
 
     if entries.is_empty() {
         let _ = browser.close().await;
@@ -802,7 +812,10 @@ pub async fn run_live(
     }
 
     // Step 2: Fetch profiles (parallel fetching for performance)
-    eprintln!("{}", "Step 2: Fetching horse/jockey/trainer profiles...".green());
+    eprintln!(
+        "{}",
+        "Step 2: Fetching horse/jockey/trainer profiles...".green()
+    );
 
     let mut horses: HashMap<String, HorseProfile> = HashMap::new();
     let mut jockeys: HashMap<String, JockeyProfile> = HashMap::new();
@@ -824,7 +837,9 @@ pub async fn run_live(
         // Check horse cache
         if !entry.horse_id.is_empty() {
             if !force {
-                if let Some(cached) = cache.get::<HorseProfile>(CacheCategory::Horse, &entry.horse_id) {
+                if let Some(cached) =
+                    cache.get::<HorseProfile>(CacheCategory::Horse, &entry.horse_id)
+                {
                     horses.insert(entry.horse_id.clone(), cached);
                 } else {
                     fetch_tasks.push(FetchTask::Horse(entry.horse_id.clone()));
@@ -838,7 +853,9 @@ pub async fn run_live(
         if !entry.jockey_id.is_empty() && !seen_jockeys.contains(&entry.jockey_id) {
             seen_jockeys.insert(entry.jockey_id.clone());
             if !force {
-                if let Some(cached) = cache.get::<JockeyProfile>(CacheCategory::Jockey, &entry.jockey_id) {
+                if let Some(cached) =
+                    cache.get::<JockeyProfile>(CacheCategory::Jockey, &entry.jockey_id)
+                {
                     jockeys.insert(entry.jockey_id.clone(), cached);
                 } else {
                     fetch_tasks.push(FetchTask::Jockey(entry.jockey_id.clone()));
@@ -852,7 +869,9 @@ pub async fn run_live(
         if !entry.trainer_id.is_empty() && !seen_trainers.contains(&entry.trainer_id) {
             seen_trainers.insert(entry.trainer_id.clone());
             if !force {
-                if let Some(cached) = cache.get::<TrainerProfile>(CacheCategory::Trainer, &entry.trainer_id) {
+                if let Some(cached) =
+                    cache.get::<TrainerProfile>(CacheCategory::Trainer, &entry.trainer_id)
+                {
                     trainers.insert(entry.trainer_id.clone(), cached);
                 } else {
                     fetch_tasks.push(FetchTask::Trainer(entry.trainer_id.clone()));
@@ -922,7 +941,10 @@ pub async fn run_live(
                                     }
                                     Err(e) => {
                                         pb.inc(1);
-                                        FetchResult::Error(format!("Horse parse error {}: {}", id, e))
+                                        FetchResult::Error(format!(
+                                            "Horse parse error {}: {}",
+                                            id, e
+                                        ))
                                     }
                                 },
                                 Err(e) => {
@@ -944,7 +966,10 @@ pub async fn run_live(
                                     }
                                     Err(e) => {
                                         pb.inc(1);
-                                        FetchResult::Error(format!("Jockey parse error {}: {}", id, e))
+                                        FetchResult::Error(format!(
+                                            "Jockey parse error {}: {}",
+                                            id, e
+                                        ))
                                     }
                                 },
                                 Err(e) => {
@@ -966,7 +991,10 @@ pub async fn run_live(
                                     }
                                     Err(e) => {
                                         pb.inc(1);
-                                        FetchResult::Error(format!("Trainer parse error {}: {}", id, e))
+                                        FetchResult::Error(format!(
+                                            "Trainer parse error {}: {}",
+                                            id, e
+                                        ))
                                     }
                                 },
                                 Err(e) => {
@@ -988,18 +1016,29 @@ pub async fn run_live(
         let mut errors: Vec<String> = Vec::new();
         for result in results {
             match result {
-                FetchResult::Horse(id, profile) => { horses.insert(id, profile); }
-                FetchResult::Jockey(id, profile) => { jockeys.insert(id, profile); }
-                FetchResult::Trainer(id, profile) => { trainers.insert(id, profile); }
+                FetchResult::Horse(id, profile) => {
+                    horses.insert(id, profile);
+                }
+                FetchResult::Jockey(id, profile) => {
+                    jockeys.insert(id, profile);
+                }
+                FetchResult::Trainer(id, profile) => {
+                    trainers.insert(id, profile);
+                }
                 FetchResult::Error(msg) => {
-                    if verbose { eprintln!("  Warning: {}", msg.yellow()); }
+                    if verbose {
+                        eprintln!("  Warning: {}", msg.yellow());
+                    }
                     errors.push(msg);
                 }
             }
         }
 
         if !errors.is_empty() && verbose {
-            eprintln!("  {} fetch errors (continuing with available data)", errors.len());
+            eprintln!(
+                "  {} fetch errors (continuing with available data)",
+                errors.len()
+            );
         }
 
         // Close browser - need to unwrap Arc
@@ -1020,7 +1059,10 @@ pub async fn run_live(
     // Step 3: Fetch odds
     eprintln!("{}", "Step 3: Fetching odds...".green());
     let odds_map = fetch_odds(&race_id, &bet_type).await?;
-    eprintln!("  Loaded {} odds combinations", format!("{}", odds_map.len()).yellow());
+    eprintln!(
+        "  Loaded {} odds combinations",
+        format!("{}", odds_map.len()).yellow()
+    );
 
     // Step 4: Build features
     eprintln!("{}", "Step 4: Building features...".green());
@@ -1067,7 +1109,10 @@ pub async fn run_live(
     };
 
     // Step 6: Calculate probabilities and EV
-    eprintln!("{}", "Step 6: Calculating probabilities and expected values...".green());
+    eprintln!(
+        "{}",
+        "Step 6: Calculating probabilities and expected values...".green()
+    );
     let min_prob = config.betting.min_probability;
     let max_combos = config.betting.max_combinations;
 
@@ -1088,7 +1133,12 @@ pub async fn run_live(
     eprintln!();
     eprintln!("{}", "=== Results ===".cyan().bold());
     println!();
-    println!("{}: {} ({})", "Race".bold(), race_info.race_name.cyan(), race_id);
+    println!(
+        "{}: {} ({})",
+        "Race".bold(),
+        race_info.race_name.cyan(),
+        race_id
+    );
     println!("{}: {}", "Bet type".bold(), bet_type.yellow());
     println!("{}: ¥{:.0}", "Bankroll".bold(), config.betting.bankroll);
     println!();
@@ -1115,7 +1165,13 @@ pub async fn run_live(
             "".to_string()
         };
 
-        println!("  {:>6}: {:>5.2}% - {} {}", id, *prob * 100.0, name.yellow(), edge_str);
+        println!(
+            "  {:>6}: {:>5.2}% - {} {}",
+            id,
+            *prob * 100.0,
+            name.yellow(),
+            edge_str
+        );
     }
     println!();
 
@@ -1124,7 +1180,11 @@ pub async fn run_live(
     let kelly_fraction = config.betting.kelly_fraction;
     let bet_unit = config.betting.bet_unit;
 
-    println!("{} (EV > {}):", "Recommended Bets".bold(), format!("{}", ev_threshold).yellow());
+    println!(
+        "{} (EV > {}):",
+        "Recommended Bets".bold(),
+        format!("{}", ev_threshold).yellow()
+    );
     if results.is_empty() {
         println!("  {}", "No bets meet the EV threshold".dimmed());
     } else {
@@ -1143,7 +1203,9 @@ pub async fn run_live(
             let q = 1.0 - *prob;
             let full_kelly = ((*prob * b - q) / b).max(0.0);
             let kelly_pct = full_kelly * kelly_fraction * 100.0;
-            let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round() as u32 * bet_unit;
+            let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round()
+                as u32
+                * bet_unit;
             let bet_amount = bet_amount.max(bet_unit);
 
             // Color coding
@@ -1177,14 +1239,20 @@ pub async fn run_live(
         println!("  {}", "─".repeat(75));
 
         // Summary
-        let total_bets: u32 = results.iter().take(10).map(|(_, prob, odds, _)| {
-            let decimal_odds = *odds / 100.0;
-            let b = decimal_odds - 1.0;
-            let q = 1.0 - *prob;
-            let full_kelly = ((*prob * b - q) / b).max(0.0);
-            let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round() as u32 * bet_unit;
-            bet_amount.max(bet_unit)
-        }).sum();
+        let total_bets: u32 = results
+            .iter()
+            .take(10)
+            .map(|(_, prob, odds, _)| {
+                let decimal_odds = *odds / 100.0;
+                let b = decimal_odds - 1.0;
+                let q = 1.0 - *prob;
+                let full_kelly = ((*prob * b - q) / b).max(0.0);
+                let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round()
+                    as u32
+                    * bet_unit;
+                bet_amount.max(bet_unit)
+            })
+            .sum();
 
         println!();
         println!(
@@ -1224,7 +1292,11 @@ pub async fn run_live(
         });
         std::fs::write(&out_path, serde_json::to_string_pretty(&output_data)?)?;
         eprintln!();
-        eprintln!("{} {}", "Results saved to:".green(), out_path.display().to_string().cyan());
+        eprintln!(
+            "{} {}",
+            "Results saved to:".green(),
+            out_path.display().to_string().cyan()
+        );
     }
 
     Ok(())
@@ -1320,12 +1392,7 @@ fn calculate_ev_trifecta(
         if let Some(&odds) = odds_map.get(&key) {
             let ev = prob * odds;
             if ev >= ev_threshold {
-                results.push((
-                    format!("{}-{}-{}", first, second, third),
-                    *prob,
-                    odds,
-                    ev,
-                ));
+                results.push((format!("{}-{}-{}", first, second, third), *prob, odds, ev));
             }
         }
     }
@@ -1340,7 +1407,6 @@ pub async fn run_scrape_historical(
     start: Option<String>,
     end: Option<String>,
     db_path: PathBuf,
-    include_odds: bool,
     force: bool,
     verbose: bool,
 ) -> anyhow::Result<()> {
@@ -1349,9 +1415,7 @@ pub async fn run_scrape_historical(
     use indicatif::{ProgressBar, ProgressStyle};
 
     use crate::scraper::historical::{
-        exacta_odds_history_url, quinella_odds_history_url, race_list_url, race_result_url,
-        trifecta_odds_history_url, trio_odds_history_url, wide_odds_history_url,
-        HistoricalOddsParser, RaceListParser, RaceResultParser,
+        race_list_url, race_result_url, RaceListParser, RaceResultParser,
     };
     use crate::scraper::Browser;
     use crate::storage::RaceRepository;
@@ -1380,7 +1444,6 @@ pub async fn run_scrape_historical(
         end_date
     );
     println!("Database: {}", db_path.display());
-    println!("Include odds: {}", include_odds);
     println!();
 
     // Initialize repository
@@ -1395,7 +1458,11 @@ pub async fn run_scrape_historical(
         if let Some(last_date) = repo.get_last_race_date()? {
             println!(
                 "{}",
-                format!("Last scraped date: {}. Use --force to re-scrape.", last_date).yellow()
+                format!(
+                    "Last scraped date: {}. Use --force to re-scrape.",
+                    last_date
+                )
+                .yellow()
             );
         }
     }
@@ -1407,7 +1474,9 @@ pub async fn run_scrape_historical(
     let progress = ProgressBar::new(total_days as u64);
     progress.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+            )
             .unwrap()
             .progress_chars("#>-"),
     );
@@ -1466,43 +1535,6 @@ pub async fn run_scrape_historical(
                                         race_id,
                                         entries.len()
                                     );
-                                }
-
-                                // Fetch odds if include_odds is true
-                                if include_odds {
-                                    // Fetch each bet type's odds
-                                    let odds_types: Vec<(&str, String, fn(&str) -> anyhow::Result<std::collections::HashMap<String, f64>>)> = vec![
-                                        ("exacta", exacta_odds_history_url(&race_id), HistoricalOddsParser::parse_exacta),
-                                        ("quinella", quinella_odds_history_url(&race_id), HistoricalOddsParser::parse_quinella),
-                                        ("trifecta", trifecta_odds_history_url(&race_id), HistoricalOddsParser::parse_trifecta),
-                                        ("trio", trio_odds_history_url(&race_id), HistoricalOddsParser::parse_trio),
-                                        ("wide", wide_odds_history_url(&race_id), HistoricalOddsParser::parse_wide),
-                                    ];
-
-                                    for (bet_type, url, parser) in odds_types {
-                                        match browser.fetch_page(&url).await {
-                                            Ok(html) => {
-                                                if let Ok(odds_map) = parser(&html) {
-                                                    let mut odds_count = 0;
-                                                    for (combo, odds) in odds_map {
-                                                        if repo.insert_odds(&race_id, bet_type, &combo, odds).is_ok() {
-                                                            odds_count += 1;
-                                                        }
-                                                    }
-                                                    if verbose && odds_count > 0 {
-                                                        println!("      {} {} odds saved", odds_count, bet_type);
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                if verbose {
-                                                    eprintln!("      Failed to fetch {} odds: {}", bet_type, e);
-                                                }
-                                            }
-                                        }
-                                        // Rate limiting between odds fetches
-                                        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-                                    }
                                 }
                             }
                         }
@@ -1568,6 +1600,15 @@ pub async fn run_backtest_historical(
     // Parse bet type
     let bet_type = BetType::from_str(&bet_type_str)
         .ok_or_else(|| anyhow::anyhow!("Invalid bet type: {}", bet_type_str))?;
+
+    // odds_snapshots stores bet_type under these lowercase keys (see run_scrape_historical)
+    let odds_bet_key = match bet_type {
+        BetType::Exacta => "exacta",
+        BetType::Trifecta => "trifecta",
+        BetType::Quinella => "quinella",
+        BetType::Trio => "trio",
+        BetType::Wide => "wide",
+    };
 
     // Parse dates
     let start_date = NaiveDate::parse_from_str(&start, "%Y-%m-%d")
@@ -1646,6 +1687,8 @@ pub async fn run_backtest_historical(
     let mut total_returned = 0.0f64;
     let mut races_processed = 0usize;
     let mut races_skipped = 0usize;
+    let mut bets_real_odds = 0usize;
+    let mut bets_estimated_odds = 0usize;
 
     // Progress bar
     let pb = ProgressBar::new(races.len() as u64);
@@ -1707,12 +1750,12 @@ pub async fn run_backtest_historical(
             // 4: horse_weight
             features[[i, 4]] = entry.horse_weight.unwrap_or(480) as f32;
             // 5-9: jockey/trainer stats (defaults)
-            features[[i, 5]] = 0.1;  // jockey_win_rate
-            features[[i, 6]] = 0.3;  // jockey_place_rate
-            features[[i, 7]] = 0.1;  // trainer_win_rate
+            features[[i, 5]] = 0.1; // jockey_win_rate
+            features[[i, 6]] = 0.3; // jockey_place_rate
+            features[[i, 7]] = 0.1; // trainer_win_rate
             features[[i, 8]] = 100.0; // jockey_races
             features[[i, 9]] = 100.0; // trainer_races
-            // 10-13: race conditions
+                                      // 10-13: race conditions
             features[[i, 10]] = race.distance as f32;
             features[[i, 11]] = if race.surface == "turf" { 1.0 } else { 0.0 };
             features[[i, 12]] = if race.surface == "dirt" { 1.0 } else { 0.0 };
@@ -1733,15 +1776,21 @@ pub async fn run_backtest_historical(
             features[[i, 19]] = popularity_proxy * 0.4; // place_rate_last_5
             features[[i, 20]] = 5.0 - popularity_proxy * 3.0; // last_position
             features[[i, 21]] = 10.0; // career_races
-            // 22: odds_log
+                                      // 22: odds_log
             features[[i, 22]] = odds_log;
             // 23-25: running style (from corner positions if available)
-            let early = entry.corner_1.or(entry.corner_2).unwrap_or(n_horses as u8 / 2) as f32;
-            let late = entry.corner_4.or(entry.corner_3).unwrap_or(n_horses as u8 / 2) as f32;
+            let early = entry
+                .corner_1
+                .or(entry.corner_2)
+                .unwrap_or(n_horses as u8 / 2) as f32;
+            let late = entry
+                .corner_4
+                .or(entry.corner_3)
+                .unwrap_or(n_horses as u8 / 2) as f32;
             features[[i, 23]] = early / n_horses as f32; // early_position
-            features[[i, 24]] = late / n_horses as f32;  // late_position
-            features[[i, 25]] = late - early;            // position_change
-            // 26-32: aptitude features (defaults)
+            features[[i, 24]] = late / n_horses as f32; // late_position
+            features[[i, 25]] = late - early; // position_change
+                                              // 26-32: aptitude features (defaults)
             features[[i, 26]] = 0.5; // aptitude_sprint
             features[[i, 27]] = 0.5; // aptitude_mile
             features[[i, 28]] = 0.5; // aptitude_intermediate
@@ -1749,11 +1798,11 @@ pub async fn run_backtest_historical(
             features[[i, 30]] = 0.5; // aptitude_turf
             features[[i, 31]] = 0.5; // aptitude_dirt
             features[[i, 32]] = 0.5; // aptitude_course
-            // 33-35: pace features
+                                     // 33-35: pace features
             features[[i, 33]] = entry.last_3f.unwrap_or(35.0); // last_3f_avg
             features[[i, 34]] = entry.last_3f.unwrap_or(34.0); // last_3f_best
             features[[i, 35]] = entry.last_3f.unwrap_or(35.0); // last_3f_last
-            // 36-38: race classification
+                                                               // 36-38: race classification
             features[[i, 36]] = entry.weight_change.unwrap_or(0) as f32; // weight_change_kg
             features[[i, 37]] = if race.grade.is_some() { 1.0 } else { 0.0 }; // is_graded_race
             features[[i, 38]] = match race.grade.as_deref() {
@@ -1830,10 +1879,8 @@ pub async fn run_backtest_historical(
                 probs
                     .into_iter()
                     .map(|(set, p)| {
-                        let mut combo: Vec<usize> = set
-                            .into_iter()
-                            .map(|s| s.parse().unwrap_or(0))
-                            .collect();
+                        let mut combo: Vec<usize> =
+                            set.into_iter().map(|s| s.parse().unwrap_or(0)).collect();
                         combo.sort();
                         (combo, p)
                     })
@@ -1844,10 +1891,8 @@ pub async fn run_backtest_historical(
                 probs
                     .into_iter()
                     .map(|(set, p)| {
-                        let mut combo: Vec<usize> = set
-                            .into_iter()
-                            .map(|s| s.parse().unwrap_or(0))
-                            .collect();
+                        let mut combo: Vec<usize> =
+                            set.into_iter().map(|s| s.parse().unwrap_or(0)).collect();
                         combo.sort();
                         (combo, p)
                     })
@@ -1858,10 +1903,8 @@ pub async fn run_backtest_historical(
                 probs
                     .into_iter()
                     .map(|(set, p)| {
-                        let mut combo: Vec<usize> = set
-                            .into_iter()
-                            .map(|s| s.parse().unwrap_or(0))
-                            .collect();
+                        let mut combo: Vec<usize> =
+                            set.into_iter().map(|s| s.parse().unwrap_or(0)).collect();
                         combo.sort();
                         (combo, p)
                     })
@@ -1873,11 +1916,7 @@ pub async fn run_backtest_historical(
         let mut sorted_entries: Vec<_> = valid_entries.iter().enumerate().collect();
         sorted_entries.sort_by_key(|(_, e)| e.finish_position.unwrap_or(99));
 
-        let actual_top3: Vec<usize> = sorted_entries
-            .iter()
-            .take(3)
-            .map(|(idx, _)| *idx)
-            .collect();
+        let actual_top3: Vec<usize> = sorted_entries.iter().take(3).map(|(idx, _)| *idx).collect();
 
         // Determine winning combinations
         let winning_combo: Vec<usize> = match bet_type {
@@ -1899,41 +1938,79 @@ pub async fn run_backtest_historical(
             }
         };
 
+        // Real combination odds scraped via --include-odds (empty map if not scraped)
+        let race_odds = repo
+            .get_odds(&race.race_id, odds_bet_key)
+            .unwrap_or_default();
+
         // Evaluate each high-EV combination
         for (combo, prob) in &combo_probs {
-            // Use win_odds from entries to estimate combination odds
-            // This is a rough approximation since we don't have actual combination odds
-            // Returns decimal odds (e.g., 9.64x)
-            let combo_odds_decimal = match bet_type {
-                BetType::Exacta | BetType::Quinella => {
-                    if combo.len() >= 2 {
-                        let o1 = valid_entries[combo[0]].win_odds.unwrap_or(10.0);
-                        let o2 = valid_entries[combo[1]].win_odds.unwrap_or(10.0);
-                        (o1 * o2).sqrt() * 2.0 // Rough approximation
-                    } else {
-                        10.0
-                    }
+            // Prefer real scraped odds; fall back to a win-odds estimate when absent.
+            // odds_snapshots keys are 2-digit 馬番 (post_position): ordered for
+            // exacta/trifecta, ascending-sorted for quinella/trio/wide.
+            let umaban = |idx: usize| valid_entries[idx].post_position;
+            let odds_key: Option<String> = match bet_type {
+                BetType::Exacta if combo.len() >= 2 => {
+                    Some(format!("{:02}-{:02}", umaban(combo[0]), umaban(combo[1])))
                 }
-                BetType::Trifecta | BetType::Trio => {
-                    if combo.len() >= 3 {
-                        let o1 = valid_entries[combo[0]].win_odds.unwrap_or(10.0);
-                        let o2 = valid_entries[combo[1]].win_odds.unwrap_or(10.0);
-                        let o3 = valid_entries[combo[2]].win_odds.unwrap_or(10.0);
-                        (o1 * o2 * o3).powf(1.0 / 3.0) * 5.0
-                    } else {
-                        50.0
-                    }
+                BetType::Trifecta if combo.len() >= 3 => Some(format!(
+                    "{:02}-{:02}-{:02}",
+                    umaban(combo[0]),
+                    umaban(combo[1]),
+                    umaban(combo[2])
+                )),
+                BetType::Quinella | BetType::Wide if combo.len() >= 2 => {
+                    let mut n = [umaban(combo[0]), umaban(combo[1])];
+                    n.sort_unstable();
+                    Some(format!("{:02}-{:02}", n[0], n[1]))
                 }
-                BetType::Wide => {
-                    if combo.len() >= 2 {
-                        let o1 = valid_entries[combo[0]].win_odds.unwrap_or(10.0);
-                        let o2 = valid_entries[combo[1]].win_odds.unwrap_or(10.0);
-                        (o1 * o2).sqrt() * 0.5
-                    } else {
-                        3.0
-                    }
+                BetType::Trio if combo.len() >= 3 => {
+                    let mut n = [umaban(combo[0]), umaban(combo[1]), umaban(combo[2])];
+                    n.sort_unstable();
+                    Some(format!("{:02}-{:02}-{:02}", n[0], n[1], n[2]))
                 }
+                _ => None,
             };
+
+            // Returns decimal odds (e.g., 9.64x)
+            let (combo_odds_decimal, used_real_odds) =
+                match odds_key.as_ref().and_then(|k| race_odds.get(k).copied()) {
+                    Some(o) => (o, true),
+                    None => {
+                        // Win-odds estimate (rough approximation, no real combo odds)
+                        let est = match bet_type {
+                            BetType::Exacta | BetType::Quinella => {
+                                if combo.len() >= 2 {
+                                    let o1 = valid_entries[combo[0]].win_odds.unwrap_or(10.0);
+                                    let o2 = valid_entries[combo[1]].win_odds.unwrap_or(10.0);
+                                    (o1 * o2).sqrt() * 2.0
+                                } else {
+                                    10.0
+                                }
+                            }
+                            BetType::Trifecta | BetType::Trio => {
+                                if combo.len() >= 3 {
+                                    let o1 = valid_entries[combo[0]].win_odds.unwrap_or(10.0);
+                                    let o2 = valid_entries[combo[1]].win_odds.unwrap_or(10.0);
+                                    let o3 = valid_entries[combo[2]].win_odds.unwrap_or(10.0);
+                                    (o1 * o2 * o3).powf(1.0 / 3.0) * 5.0
+                                } else {
+                                    50.0
+                                }
+                            }
+                            BetType::Wide => {
+                                if combo.len() >= 2 {
+                                    let o1 = valid_entries[combo[0]].win_odds.unwrap_or(10.0);
+                                    let o2 = valid_entries[combo[1]].win_odds.unwrap_or(10.0);
+                                    (o1 * o2).sqrt() * 0.5
+                                } else {
+                                    3.0
+                                }
+                            }
+                        };
+                        (est, false)
+                    }
+                };
 
             // Convert to Japanese format (multiply by 100)
             let combo_odds = combo_odds_decimal * 100.0;
@@ -1943,6 +2020,11 @@ pub async fn run_backtest_historical(
             if ev >= ev_threshold {
                 total_bets += 1;
                 total_wagered += 100.0; // ¥100 per bet
+                if used_real_odds {
+                    bets_real_odds += 1;
+                } else {
+                    bets_estimated_odds += 1;
+                }
 
                 // Check if this combo won
                 let won = match bet_type {
@@ -1999,10 +2081,7 @@ pub async fn run_backtest_historical(
     println!("{}", "─".repeat(30));
     println!("Total wagered:   ¥{:.0}", total_wagered);
     println!("Total returned:  ¥{:.0}", total_returned);
-    println!(
-        "Profit/Loss:     ¥{:.0}",
-        total_returned - total_wagered
-    );
+    println!("Profit/Loss:     ¥{:.0}", total_returned - total_wagered);
     println!(
         "ROI:             {:.2}%",
         if total_wagered > 0.0 {
@@ -2013,10 +2092,32 @@ pub async fn run_backtest_historical(
     );
     println!();
 
-    // Add warning about odds estimation
-    println!("{}", "⚠ Note".yellow().bold());
-    println!("Combination odds are estimated from win odds.");
-    println!("For accurate results, scrape with --include-odds.");
+    // Odds source breakdown — never silently treat estimated odds as real
+    println!("{}", "Odds Source".yellow().bold());
+    println!("{}", "─".repeat(30));
+    let real_pct = if total_bets > 0 {
+        bets_real_odds as f64 / total_bets as f64 * 100.0
+    } else {
+        0.0
+    };
+    println!(
+        "Real (scraped) odds:    {} ({:.1}%)",
+        bets_real_odds, real_pct
+    );
+    println!("Estimated odds:         {}", bets_estimated_odds);
+    println!();
+
+    if bets_real_odds == 0 {
+        println!("{}", "⚠ Note".yellow().bold());
+        println!("No real combination odds in odds_snapshots — all odds estimated from win odds.");
+        println!(
+            "Run 'scrape-historical --include-odds' to populate odds_snapshots for accurate ROI."
+        );
+    } else if bets_estimated_odds > 0 {
+        println!("{}", "⚠ Note".yellow().bold());
+        println!("Some combinations lacked scraped odds and fell back to win-odds estimates.");
+        println!("ROI mixes real and estimated odds — see the breakdown above.");
+    }
 
     Ok(())
 }
