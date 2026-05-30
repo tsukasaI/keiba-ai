@@ -122,6 +122,32 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
+        Commands::PaperRecord {
+            race_id,
+            bet_type,
+            ev_threshold,
+            db,
+            calibration,
+            force,
+            verbose,
+        } => {
+            cli::run_paper_record(
+                race_id,
+                bet_type,
+                ev_threshold,
+                db,
+                calibration,
+                force,
+                verbose,
+            )
+            .await
+        }
+        Commands::PaperSettle {
+            db,
+            race_id,
+            verbose,
+        } => cli::run_paper_settle(db, race_id, verbose).await,
+        Commands::PaperReport { db, bankroll } => cli::run_paper_report(db, bankroll).await,
     }
 }
 

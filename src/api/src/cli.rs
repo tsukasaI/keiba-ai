@@ -278,6 +278,63 @@ pub enum Commands {
         #[arg(short, long, default_value = "table")]
         format: String,
     },
+
+    /// Record paper-trading bets for a race (capture real odds + EV bets BEFORE post time)
+    PaperRecord {
+        /// Race ID (e.g., 202506050811)
+        #[arg(value_name = "RACE_ID")]
+        race_id: String,
+
+        /// Bet type (exacta, trifecta)
+        #[arg(short, long, default_value = "exacta")]
+        bet_type: String,
+
+        /// EV threshold for recording bets
+        #[arg(long, default_value_t = 1.0)]
+        ev_threshold: f64,
+
+        /// SQLite database path
+        #[arg(long, default_value = "data/historical/keiba.db")]
+        db: PathBuf,
+
+        /// Calibration config JSON file
+        #[arg(long)]
+        calibration: Option<PathBuf>,
+
+        /// Force refresh cache
+        #[arg(long)]
+        force: bool,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+    },
+
+    /// Settle pending paper-trading bets against official results (run AFTER the race)
+    PaperSettle {
+        /// SQLite database path
+        #[arg(long, default_value = "data/historical/keiba.db")]
+        db: PathBuf,
+
+        /// Only settle bets for this race ID (optional)
+        #[arg(long)]
+        race_id: Option<String>,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+    },
+
+    /// Report verified ROI / hit-rate from settled paper-trading bets
+    PaperReport {
+        /// SQLite database path
+        #[arg(long, default_value = "data/historical/keiba.db")]
+        db: PathBuf,
+
+        /// Starting bankroll for the cumulative trajectory (defaults to config)
+        #[arg(long)]
+        bankroll: Option<f64>,
+    },
 }
 
 /// Load calibrator from path or default location.
@@ -727,16 +784,31 @@ pub async fn run_backtest(
     Ok(())
 }
 
-/// Run live race prediction (scrape + predict in one command).
-pub async fn run_live(
+/// Output of the live prediction core: everything needed to display or persist
+/// EV bets for one race. Produced by [`predict_live`], consumed by [`run_live`]
+/// (console output) and `run_paper_record` (persistence). Combination strings in
+/// `results` are zero-padded post positions (e.g. `"01-02"`), matching the odds
+/// and official-payout key format.
+pub struct LivePrediction {
+    pub race_info: crate::scraper::parsers::RaceInfo,
+    pub entries: Vec<crate::scraper::parsers::RaceEntry>,
+    pub win_probs: std::collections::HashMap<String, f64>,
+    /// (combination, probability, decimal odds, expected value)
+    pub results: Vec<(String, f64, f64, f64)>,
+    pub odds_official_datetime: Option<String>,
+}
+
+/// Scrape a race and produce EV-filtered bets — the shared core of the `live`
+/// and `paper-record` commands. Emits progress to stderr and returns structured
+/// results for the caller to display or persist.
+pub async fn predict_live(
     race_id: String,
     bet_type: String,
     ev_threshold: f64,
-    output: Option<PathBuf>,
     calibration_path: Option<PathBuf>,
     force: bool,
     verbose: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<LivePrediction> {
     use crate::scraper::{
         browser::PageLoadConfig,
         cache::{Cache, CacheCategory},
@@ -1058,7 +1130,7 @@ pub async fn run_live(
 
     // Step 3: Fetch odds
     eprintln!("{}", "Step 3: Fetching odds...".green());
-    let odds_map = fetch_odds(&race_id, &bet_type).await?;
+    let (odds_map, odds_official_datetime) = fetch_odds(&race_id, &bet_type).await?;
     eprintln!(
         "  Loaded {} odds combinations",
         format!("{}", odds_map.len()).yellow()
@@ -1068,6 +1140,9 @@ pub async fn run_live(
     eprintln!("{}", "Step 4: Building features...".green());
     let mut horse_features = Vec::new();
     let mut horse_ids = Vec::new();
+    // Map horse_id -> post_position so EV combos can be keyed by post position
+    // (the odds and official-payout key format), not by netkeiba horse id.
+    let mut id_to_post: HashMap<String, u8> = HashMap::new();
 
     for entry in &entries {
         let horse = horses.get(&entry.horse_id);
@@ -1077,6 +1152,9 @@ pub async fn run_live(
         let features = FeatureBuilder::build(&race_info, entry, horse, jockey, trainer);
         horse_features.push(features);
         horse_ids.push(entry.horse_id.clone());
+        if !entry.horse_id.is_empty() && entry.post_position > 0 {
+            id_to_post.insert(entry.horse_id.clone(), entry.post_position);
+        }
     }
 
     // Step 5: Run model inference
@@ -1120,14 +1198,55 @@ pub async fn run_live(
         "trifecta" => {
             let probs = calculate_trifecta_probs(&win_probs, min_prob);
             let top = get_top_trifectas(&probs, max_combos);
-            calculate_ev_trifecta(&top, &odds_map, ev_threshold)
+            calculate_ev_trifecta(&top, &odds_map, ev_threshold, &id_to_post)
         }
         _ => {
             let probs = calculate_exacta_probs(&win_probs, min_prob);
             let top = get_top_exactas(&probs, max_combos);
-            calculate_ev_exacta(&top, &odds_map, ev_threshold)
+            calculate_ev_exacta(&top, &odds_map, ev_threshold, &id_to_post)
         }
     };
+
+    Ok(LivePrediction {
+        race_info,
+        entries,
+        win_probs,
+        results,
+        odds_official_datetime,
+    })
+}
+
+/// Run live race prediction (scrape + predict + display) in one command.
+pub async fn run_live(
+    race_id: String,
+    bet_type: String,
+    ev_threshold: f64,
+    output: Option<PathBuf>,
+    calibration_path: Option<PathBuf>,
+    force: bool,
+    verbose: bool,
+) -> anyhow::Result<()> {
+    use colored::Colorize;
+
+    let pred = predict_live(
+        race_id.clone(),
+        bet_type.clone(),
+        ev_threshold,
+        calibration_path,
+        force,
+        verbose,
+    )
+    .await?;
+
+    let LivePrediction {
+        race_info,
+        entries,
+        win_probs,
+        results,
+        ..
+    } = &pred;
+
+    let config = AppConfig::load()?;
 
     // Step 7: Output results
     eprintln!();
@@ -1197,16 +1316,10 @@ pub async fn run_live(
         println!("  {}", "─".repeat(75));
 
         for (i, (combo, prob, odds, ev)) in results.iter().take(10).enumerate() {
-            // Calculate Kelly bet sizing
-            let decimal_odds = *odds / 100.0;
-            let b = decimal_odds - 1.0;
-            let q = 1.0 - *prob;
-            let full_kelly = ((*prob * b - q) / b).max(0.0);
+            // Kelly bet sizing (odds are decimal, e.g. 12.5)
+            let full_kelly = full_kelly_fraction(*prob, *odds);
             let kelly_pct = full_kelly * kelly_fraction * 100.0;
-            let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round()
-                as u32
-                * bet_unit;
-            let bet_amount = bet_amount.max(bet_unit);
+            let bet_amount = kelly_stake(full_kelly, kelly_fraction, bankroll, bet_unit);
 
             // Color coding
             let ev_str = if *ev >= 1.5 {
@@ -1243,14 +1356,8 @@ pub async fn run_live(
             .iter()
             .take(10)
             .map(|(_, prob, odds, _)| {
-                let decimal_odds = *odds / 100.0;
-                let b = decimal_odds - 1.0;
-                let q = 1.0 - *prob;
-                let full_kelly = ((*prob * b - q) / b).max(0.0);
-                let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round()
-                    as u32
-                    * bet_unit;
-                bet_amount.max(bet_unit)
+                let full_kelly = full_kelly_fraction(*prob, *odds);
+                kelly_stake(full_kelly, kelly_fraction, bankroll, bet_unit)
             })
             .sum();
 
@@ -1274,12 +1381,9 @@ pub async fn run_live(
             "kelly_fraction": kelly_fraction,
             "win_probabilities": win_probs,
             "recommended_bets": results.iter().take(10).map(|(c, p, o, e)| {
-                let decimal_odds = *o / 100.0;
-                let b = decimal_odds - 1.0;
-                let q = 1.0 - *p;
-                let full_kelly = ((*p * b - q) / b).max(0.0);
+                let full_kelly = full_kelly_fraction(*p, *o);
                 let kelly_pct = full_kelly * kelly_fraction;
-                let bet_amount = (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round() as u32 * bet_unit;
+                let bet_amount = kelly_stake(full_kelly, kelly_fraction, bankroll, bet_unit);
                 serde_json::json!({
                     "combination": c,
                     "probability": p,
@@ -1315,11 +1419,14 @@ async fn fetch_race_card_with_browser(
     browser.fetch_page_with_config(&url, &config).await
 }
 
-/// Fetch odds from API
+/// Fetch odds from API.
+///
+/// Returns the combination odds map (keyed by zero-padded post positions, e.g.
+/// `"01-02"`, with decimal odds values) plus the API's official odds timestamp.
 async fn fetch_odds(
     race_id: &str,
     bet_type: &str,
-) -> anyhow::Result<std::collections::HashMap<String, f64>> {
+) -> anyhow::Result<(std::collections::HashMap<String, f64>, Option<String>)> {
     use crate::scraper::parsers::OddsParser;
 
     let client = reqwest::Client::new();
@@ -1331,10 +1438,12 @@ async fn fetch_odds(
     let response = client.get(&url).send().await?.text().await?;
 
     let mut odds_map = std::collections::HashMap::new();
+    let official_datetime;
 
     match bet_type {
         "trifecta" => {
             let parsed = OddsParser::parse_trifecta(&response)?;
+            official_datetime = parsed.official_datetime;
             for ((first, second, third), odds) in parsed.odds {
                 let key = format!("{:02}-{:02}-{:02}", first, second, third);
                 odds_map.insert(key, odds);
@@ -1342,6 +1451,7 @@ async fn fetch_odds(
         }
         _ => {
             let parsed = OddsParser::parse_exacta(&response)?;
+            official_datetime = parsed.official_datetime;
             for ((first, second), odds) in parsed.odds {
                 let key = format!("{:02}-{:02}", first, second);
                 odds_map.insert(key, odds);
@@ -1349,27 +1459,34 @@ async fn fetch_odds(
         }
     }
 
-    Ok(odds_map)
+    Ok((odds_map, official_datetime))
 }
 
-/// Calculate EV for exacta bets
+/// Calculate EV for exacta bets.
+///
+/// `top` is keyed by horse_id (from the position model). Odds are keyed by
+/// zero-padded post positions, so each combo is translated via `id_to_post`
+/// before lookup. The returned combination string is the post-position key
+/// (e.g. `"01-02"`) so it matches the odds, the displayed bet, and the official
+/// payout table. `odds` are decimal; EV = prob × decimal odds.
 fn calculate_ev_exacta(
     top: &[((String, String), f64)],
     odds_map: &std::collections::HashMap<String, f64>,
     ev_threshold: f64,
+    id_to_post: &std::collections::HashMap<String, u8>,
 ) -> Vec<(String, f64, f64, f64)> {
     let mut results = Vec::new();
 
     for ((first, second), prob) in top {
-        // Match horse_id to post_position (simplified - assumes ID contains position)
-        // In real implementation, we'd need to map horse_id to post_position
-        let key = format!("{}-{}", first, second);
+        let (Some(&p1), Some(&p2)) = (id_to_post.get(first), id_to_post.get(second)) else {
+            continue;
+        };
+        let key = format!("{:02}-{:02}", p1, p2);
 
-        // Try to find matching odds
         if let Some(&odds) = odds_map.get(&key) {
             let ev = prob * odds;
             if ev >= ev_threshold {
-                results.push((format!("{}-{}", first, second), *prob, odds, ev));
+                results.push((key, *prob, odds, ev));
             }
         }
     }
@@ -1378,27 +1495,528 @@ fn calculate_ev_exacta(
     results
 }
 
-/// Calculate EV for trifecta bets
+/// Calculate EV for trifecta bets. See `calculate_ev_exacta` for the keying and
+/// odds conventions.
 fn calculate_ev_trifecta(
     top: &[((String, String, String), f64)],
     odds_map: &std::collections::HashMap<String, f64>,
     ev_threshold: f64,
+    id_to_post: &std::collections::HashMap<String, u8>,
 ) -> Vec<(String, f64, f64, f64)> {
     let mut results = Vec::new();
 
     for ((first, second, third), prob) in top {
-        let key = format!("{}-{}-{}", first, second, third);
+        let (Some(&p1), Some(&p2), Some(&p3)) = (
+            id_to_post.get(first),
+            id_to_post.get(second),
+            id_to_post.get(third),
+        ) else {
+            continue;
+        };
+        let key = format!("{:02}-{:02}-{:02}", p1, p2, p3);
 
         if let Some(&odds) = odds_map.get(&key) {
             let ev = prob * odds;
             if ev >= ev_threshold {
-                results.push((format!("{}-{}-{}", first, second, third), *prob, odds, ev));
+                results.push((key, *prob, odds, ev));
             }
         }
     }
 
     results.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap());
     results
+}
+
+/// Full Kelly fraction for a decimal-odds bet (e.g. odds `12.5`). Returns 0 when
+/// there is no edge (odds ≤ 1 or negative-expectation), so callers never bet against.
+fn full_kelly_fraction(prob: f64, decimal_odds: f64) -> f64 {
+    let b = decimal_odds - 1.0;
+    if b <= 0.0 {
+        return 0.0;
+    }
+    let q = 1.0 - prob;
+    ((prob * b - q) / b).max(0.0)
+}
+
+/// Stake (yen) for a bet at the given (already fractional) Kelly, rounded down to
+/// the bet unit with a floor of one unit.
+fn kelly_stake(full_kelly: f64, kelly_fraction: f64, bankroll: f64, bet_unit: u32) -> u32 {
+    let amount =
+        (bankroll * full_kelly * kelly_fraction / bet_unit as f64).round() as u32 * bet_unit;
+    amount.max(bet_unit)
+}
+
+/// Record paper-trading bets for a race: run the live prediction, persist each EV
+/// bet (status `pending`) with a Kelly-sized stake, and snapshot the bet odds.
+/// Idempotent per (race_id, bet_type, combination) — re-running re-captures.
+///
+/// Must run BEFORE post time so the odds API returns real pre-race combination
+/// odds. Settle later with `paper-settle`, then review with `paper-report`.
+pub async fn run_paper_record(
+    race_id: String,
+    bet_type: String,
+    ev_threshold: f64,
+    db_path: PathBuf,
+    calibration_path: Option<PathBuf>,
+    force: bool,
+    verbose: bool,
+) -> anyhow::Result<()> {
+    use crate::storage::repository::{HistoricalRaceInfo, RaceRepository};
+    use chrono::{NaiveDate, Utc};
+    use colored::Colorize;
+
+    let pred = predict_live(
+        race_id.clone(),
+        bet_type.clone(),
+        ev_threshold,
+        calibration_path,
+        force,
+        verbose,
+    )
+    .await?;
+
+    let config = AppConfig::load()?;
+    let bankroll = config.betting.bankroll;
+    let kelly_fraction = config.betting.kelly_fraction;
+    let bet_unit = config.betting.bet_unit;
+
+    let repo = RaceRepository::new(&db_path)?;
+
+    // Resolve the race date from the scraped card; fall back to the race_id year so
+    // a missing date never blocks recording (only report ordering is affected).
+    let race_date =
+        NaiveDate::parse_from_str(&pred.race_info.date, "%Y-%m-%d").unwrap_or_else(|_| {
+            let year = race_id
+                .get(0..4)
+                .and_then(|y| y.parse::<i32>().ok())
+                .unwrap_or(2000);
+            eprintln!(
+                "{}",
+                format!("  Warning: race date not on card; using {year}-01-01 for ordering")
+                    .yellow()
+            );
+            NaiveDate::from_ymd_opt(year, 1, 1).unwrap()
+        });
+
+    // Upsert a minimal race row so odds_snapshots' foreign key is satisfied and the
+    // captured odds also feed backtest-historical. Finish data is filled in later by
+    // settle's result scrape (insert_race is an upsert).
+    let race_row = HistoricalRaceInfo {
+        race_id: race_id.clone(),
+        race_date,
+        racecourse: pred.race_info.racecourse.clone(),
+        race_number: pred.race_info.race_number,
+        race_name: Some(pred.race_info.race_name.clone()).filter(|s| !s.is_empty()),
+        distance: pred.race_info.distance,
+        surface: pred.race_info.surface.clone(),
+        track_condition: Some(pred.race_info.track_condition.clone()).filter(|s| !s.is_empty()),
+        grade: Some(pred.race_info.grade.clone()).filter(|s| !s.is_empty()),
+        field_size: Some(pred.entries.len() as u8),
+        weather: None,
+    };
+    repo.insert_race(&race_row)?;
+
+    let recorded_at = Utc::now().to_rfc3339();
+    let mut total_stake: i64 = 0;
+    let mut recorded = 0usize;
+
+    for (combo, prob, odds, ev) in &pred.results {
+        let full_kelly = full_kelly_fraction(*prob, *odds);
+        let stake = kelly_stake(full_kelly, kelly_fraction, bankroll, bet_unit) as i64;
+        let frac_kelly = full_kelly * kelly_fraction;
+
+        repo.insert_paper_bet(
+            &race_id,
+            race_date,
+            &bet_type,
+            combo,
+            *prob,
+            *odds,
+            *ev,
+            frac_kelly,
+            stake,
+            &recorded_at,
+            pred.odds_official_datetime.as_deref(),
+        )?;
+        // Snapshot the bet's real odds (feeds backtest-historical; FK satisfied above).
+        repo.insert_odds(&race_id, &bet_type, combo, *odds)?;
+
+        total_stake += stake;
+        recorded += 1;
+    }
+
+    eprintln!();
+    println!(
+        "{} {} {} bet(s) recorded for {} ({}), total stake ¥{}",
+        "Paper-trade:".green().bold(),
+        recorded,
+        bet_type,
+        pred.race_info.race_name.cyan(),
+        race_id,
+        total_stake
+    );
+    if recorded == 0 {
+        println!(
+            "  {}",
+            "No EV bets met the threshold — nothing recorded.".dimmed()
+        );
+    } else {
+        println!(
+            "  {}",
+            format!(
+                "Settle after the race with: keiba-api paper-settle --db {}",
+                db_path.display()
+            )
+            .dimmed()
+        );
+    }
+
+    Ok(())
+}
+
+/// Settle pending paper-trading bets against official payouts.
+///
+/// For each race with pending bets whose official payouts aren't yet stored, the
+/// result page is scraped once (reusing the historical result parser) and its
+/// payout table persisted. Each pending bet is then settled: a combination that
+/// appears in the official payout wins (`payout = stake/100 × payout_per_100`),
+/// otherwise it loses. Races that haven't finished yet leave their bets pending.
+pub async fn run_paper_settle(
+    db_path: PathBuf,
+    race_id_filter: Option<String>,
+    verbose: bool,
+) -> anyhow::Result<()> {
+    use crate::scraper::historical::{race_result_url, RaceResultParser};
+    use crate::scraper::Browser;
+    use crate::storage::RaceRepository;
+    use chrono::Utc;
+    use colored::Colorize;
+    use std::collections::HashSet;
+
+    let repo = RaceRepository::new(&db_path)?;
+
+    let mut pending = repo.get_pending_bets()?;
+    if let Some(ref rid) = race_id_filter {
+        pending.retain(|b| &b.race_id == rid);
+    }
+    if pending.is_empty() {
+        println!("{}", "No pending paper bets to settle.".dimmed());
+        return Ok(());
+    }
+
+    // Distinct races among pending bets, in first-seen order.
+    let mut race_ids: Vec<String> = Vec::new();
+    let mut seen = HashSet::new();
+    for b in &pending {
+        if seen.insert(b.race_id.clone()) {
+            race_ids.push(b.race_id.clone());
+        }
+    }
+
+    println!(
+        "{} {} pending bet(s) across {} race(s)",
+        "Paper-settle:".green().bold(),
+        pending.len(),
+        race_ids.len()
+    );
+
+    let mut browser: Option<Browser> = None;
+    let (mut won, mut lost, mut still_pending) = (0usize, 0usize, 0usize);
+
+    for rid in &race_ids {
+        // Bet types this race still needs payouts for.
+        let needed_types: HashSet<String> = pending
+            .iter()
+            .filter(|b| &b.race_id == rid)
+            .map(|b| b.bet_type.clone())
+            .collect();
+
+        let have_all = needed_types.iter().all(|bt| {
+            repo.get_payouts(rid, bt)
+                .map(|m| !m.is_empty())
+                .unwrap_or(false)
+        });
+
+        // Scrape the result page once if any needed payout is missing.
+        if !have_all {
+            if browser.is_none() {
+                eprintln!("{}", "Launching browser...".dimmed());
+                browser = Some(Browser::launch().await?);
+            }
+            let b = browser.as_ref().unwrap();
+            let url = race_result_url(rid);
+            if verbose {
+                eprintln!("  Fetching result: {url}");
+            }
+            match b.fetch_page(&url).await {
+                Ok(html) => {
+                    let payouts = RaceResultParser::parse_payouts(&html);
+                    if payouts.is_empty() {
+                        if verbose {
+                            eprintln!(
+                                "  {}",
+                                format!("No payouts for {rid} yet (race may not have finished)")
+                                    .yellow()
+                            );
+                        }
+                    } else {
+                        // Persist race + entries for completeness and the finish cross-check.
+                        if let Ok((race_info, entries)) = RaceResultParser::parse(&html, rid) {
+                            let _ = repo.insert_race(&race_info);
+                            for e in &entries {
+                                let _ = repo.insert_entry(e);
+                            }
+                        }
+                        for p in &payouts {
+                            repo.insert_payout(rid, &p.bet_type, &p.combination, p.payout_per_100)?;
+                        }
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "  {}",
+                        format!("Failed to fetch result for {rid}: {e}").red()
+                    );
+                }
+            }
+        }
+
+        // Settle each pending bet for this race against official payouts.
+        let settled_at = Utc::now().to_rfc3339();
+        for bet in pending.iter().filter(|b| &b.race_id == rid) {
+            let payouts = repo.get_payouts(rid, &bet.bet_type)?;
+            if payouts.is_empty() {
+                still_pending += 1;
+                continue; // race not settled yet — leave pending
+            }
+            let (status, payout_yen) = settle_bet(bet.stake, &bet.combination, &payouts);
+            repo.update_bet_settlement(bet.id, status, payout_yen, &settled_at)?;
+            if status == "won" {
+                won += 1;
+            } else {
+                lost += 1;
+            }
+            if verbose {
+                eprintln!(
+                    "  {rid} {} {} -> {status} (¥{payout_yen})",
+                    bet.bet_type, bet.combination
+                );
+            }
+        }
+
+        // Independent sanity check: official winning combo vs. finish order.
+        cross_check_finish(&repo, rid, &needed_types);
+    }
+
+    if let Some(b) = browser {
+        let _ = b.close().await;
+    }
+
+    println!();
+    println!(
+        "  {} {won} won, {lost} lost, {still_pending} still pending",
+        "Settled:".bold()
+    );
+
+    Ok(())
+}
+
+/// Report verified paper-trading performance from settled bets: total staked and
+/// returned, net P&L, ROI, and hit rate — overall and per bet type — plus a
+/// cumulative bankroll trajectory and the count of bets still pending settlement.
+pub async fn run_paper_report(db_path: PathBuf, bankroll_start: Option<f64>) -> anyhow::Result<()> {
+    use crate::storage::RaceRepository;
+    use colored::Colorize;
+    use std::collections::BTreeMap;
+
+    let repo = RaceRepository::new(&db_path)?;
+    let bets = repo.get_all_paper_bets()?;
+    if bets.is_empty() {
+        println!("{}", "No paper bets recorded yet.".dimmed());
+        return Ok(());
+    }
+
+    let config = AppConfig::load()?;
+    let start_bankroll = bankroll_start.unwrap_or(config.betting.bankroll);
+
+    // Per-bet-type tallies over settled bets only.
+    #[derive(Default)]
+    struct Agg {
+        staked: i64,
+        returned: i64,
+        won: usize,
+        settled: usize,
+    }
+    let mut by_type: BTreeMap<String, Agg> = BTreeMap::new();
+    let mut overall = Agg::default();
+    let mut pending = 0usize;
+
+    for b in &bets {
+        let is_settled = b.status == "won" || b.status == "lost";
+        if !is_settled {
+            pending += 1;
+            continue;
+        }
+        let payout = b.payout.unwrap_or(0);
+        let a = by_type.entry(b.bet_type.clone()).or_default();
+        a.staked += b.stake;
+        a.returned += payout;
+        a.settled += 1;
+        overall.staked += b.stake;
+        overall.returned += payout;
+        overall.settled += 1;
+        if b.status == "won" {
+            a.won += 1;
+            overall.won += 1;
+        }
+    }
+
+    let fmt_line = |label: &str, a: &Agg| -> String {
+        let net = a.returned - a.staked;
+        let roi = if a.staked > 0 {
+            net as f64 / a.staked as f64 * 100.0
+        } else {
+            0.0
+        };
+        let hit = if a.settled > 0 {
+            a.won as f64 / a.settled as f64 * 100.0
+        } else {
+            0.0
+        };
+        let roi_s = if net >= 0 {
+            format!("{roi:+.1}%").green().to_string()
+        } else {
+            format!("{roi:+.1}%").red().to_string()
+        };
+        format!(
+            "  {label:<10} {:>4} bets  {:>5.1}% hit  staked ¥{:>9}  returned ¥{:>9}  ROI {roi_s}",
+            a.settled, hit, a.staked, a.returned
+        )
+    };
+
+    println!("{}", "=== Paper-Trading Report ===".cyan().bold());
+    println!();
+    if overall.settled == 0 {
+        println!(
+            "  {}",
+            format!(
+                "No settled bets yet ({pending} pending). Run paper-settle after races finish."
+            )
+            .dimmed()
+        );
+        return Ok(());
+    }
+
+    println!("{}", "By bet type (settled):".bold());
+    for (bt, a) in &by_type {
+        println!("{}", fmt_line(bt, a));
+    }
+    println!("  {}", "─".repeat(78));
+    println!("{}", fmt_line("TOTAL", &overall));
+    println!();
+
+    // Cumulative bankroll in race-date then record order.
+    let mut settled: Vec<&crate::storage::repository::PaperBet> = bets
+        .iter()
+        .filter(|b| b.status == "won" || b.status == "lost")
+        .collect();
+    settled.sort_by(|x, y| {
+        x.race_date
+            .cmp(&y.race_date)
+            .then_with(|| x.recorded_at.cmp(&y.recorded_at))
+    });
+    let mut bankroll = start_bankroll;
+    let mut peak = start_bankroll;
+    let mut trough = start_bankroll;
+    for b in &settled {
+        bankroll += b.payout.unwrap_or(0) as f64 - b.stake as f64;
+        peak = peak.max(bankroll);
+        trough = trough.min(bankroll);
+    }
+    let net = overall.returned - overall.staked;
+    println!("{}", "Bankroll trajectory:".bold());
+    println!("  Start:  ¥{start_bankroll:.0}");
+    println!("  Peak:   ¥{peak:.0}");
+    println!("  Trough: ¥{trough:.0}");
+    let final_s = if net >= 0 {
+        format!("¥{bankroll:.0}").green().to_string()
+    } else {
+        format!("¥{bankroll:.0}").red().to_string()
+    };
+    println!("  Final:  {final_s}  (net ¥{net:+})");
+    println!();
+
+    let warn = "Verified ROI uses real pre-race odds (bet time) and official payouts; \
+                bet-time odds differ from final pari-mutuel odds, so live results may vary."
+        .dimmed();
+    println!("  {warn}");
+    if pending > 0 {
+        println!(
+            "  {}",
+            format!("{pending} bet(s) still pending — not included in ROI.").yellow()
+        );
+    }
+
+    Ok(())
+}
+
+/// Decide one bet's outcome from the official payouts for its bet type. Returns
+/// `(status, payout_yen)`: a combination present in the payout table wins and pays
+/// `stake/100 × payout_per_100`; any other combination loses. Callers must only
+/// invoke this once the race is settled (payouts non-empty).
+fn settle_bet(
+    stake: i64,
+    combination: &str,
+    payouts: &std::collections::HashMap<String, i64>,
+) -> (&'static str, i64) {
+    match payouts.get(combination) {
+        Some(&per100) => ("won", stake * per100 / 100),
+        None => ("lost", 0),
+    }
+}
+
+/// Warn when the official payout's winning combination disagrees with the
+/// combination implied by the finish order in `race_entries` — a signal that the
+/// payout or result parse went wrong. Best-effort; silent when data is missing.
+fn cross_check_finish(
+    repo: &crate::storage::RaceRepository,
+    race_id: &str,
+    bet_types: &std::collections::HashSet<String>,
+) {
+    use colored::Colorize;
+    let Ok(entries) = repo.get_race_entries(race_id) else {
+        return;
+    };
+    let post_at = |finish: u8| {
+        entries
+            .iter()
+            .find(|e| e.finish_position == Some(finish))
+            .map(|e| e.post_position)
+    };
+    let (p1, p2, p3) = (post_at(1), post_at(2), post_at(3));
+
+    for bt in bet_types {
+        let expected = match bt.as_str() {
+            "exacta" => match (p1, p2) {
+                (Some(a), Some(b)) => Some(format!("{a:02}-{b:02}")),
+                _ => None,
+            },
+            "trifecta" => match (p1, p2, p3) {
+                (Some(a), Some(b), Some(c)) => Some(format!("{a:02}-{b:02}-{c:02}")),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let (Some(exp), Ok(payouts)) = (expected, repo.get_payouts(race_id, bt)) {
+            if !payouts.is_empty() && !payouts.contains_key(&exp) {
+                eprintln!(
+                    "  {}",
+                    format!("Warning: {bt} payout for {race_id} lacks finish-order {exp}").yellow()
+                );
+            }
+        }
+    }
 }
 
 /// Run historical data scraping.
@@ -2180,5 +2798,70 @@ mod tests {
         assert!(validate_bet_type("invalid").is_err());
         assert!(validate_bet_type("").is_err());
         assert!(validate_bet_type("win").is_err());
+    }
+
+    #[test]
+    fn test_full_kelly_fraction() {
+        // No edge: even-money odds with <50% win prob → never bet.
+        assert_eq!(full_kelly_fraction(0.4, 2.0), 0.0);
+        // Degenerate odds (≤ 1.0) → 0, never bet against.
+        assert_eq!(full_kelly_fraction(0.9, 1.0), 0.0);
+        // Clear edge: p=0.5, decimal odds 3.0 (b=2) → (0.5*2 - 0.5)/2 = 0.25.
+        assert!((full_kelly_fraction(0.5, 3.0) - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_kelly_stake_rounds_and_floors() {
+        // 100_000 bankroll, 0.2 full Kelly, quarter-Kelly fraction, ¥100 unit
+        // → 100_000 * 0.2 * 0.25 = 5_000.
+        assert_eq!(kelly_stake(0.2, 0.25, 100_000.0, 100), 5_000);
+        // Zero Kelly still stakes the minimum one unit.
+        assert_eq!(kelly_stake(0.0, 0.25, 100_000.0, 100), 100);
+    }
+
+    #[test]
+    fn test_calculate_ev_exacta_maps_ids_to_post_positions() {
+        // Model probabilities are keyed by horse_id; odds by post position.
+        // The EV join must translate ids → posts, emit post-position combos,
+        // and filter by EV (= prob × decimal odds).
+        let mut id_to_post = std::collections::HashMap::new();
+        id_to_post.insert("horseA".to_string(), 3u8);
+        id_to_post.insert("horseB".to_string(), 4u8);
+
+        let mut odds_map = std::collections::HashMap::new();
+        odds_map.insert("03-04".to_string(), 12.0); // EV = 0.1 * 12 = 1.2 (kept)
+        odds_map.insert("04-03".to_string(), 4.0); //  EV = 0.05 * 4 = 0.2 (dropped)
+
+        let top = vec![
+            (("horseA".to_string(), "horseB".to_string()), 0.1),
+            (("horseB".to_string(), "horseA".to_string()), 0.05),
+        ];
+
+        let results = calculate_ev_exacta(&top, &odds_map, 1.0, &id_to_post);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "03-04");
+        assert!((results[0].3 - 1.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_calculate_ev_exacta_skips_unmapped_ids() {
+        // A horse missing from the post-position map is skipped, not panicked on.
+        let id_to_post = std::collections::HashMap::new();
+        let odds_map = std::collections::HashMap::new();
+        let top = vec![(("ghost".to_string(), "phantom".to_string()), 0.5)];
+        assert!(calculate_ev_exacta(&top, &odds_map, 1.0, &id_to_post).is_empty());
+    }
+
+    #[test]
+    fn test_settle_bet() {
+        let mut payouts = std::collections::HashMap::new();
+        payouts.insert("03-04".to_string(), 1230i64); // ¥1,230 per ¥100
+
+        // Winning combo: ¥400 staked → 400/100 × 1230 = ¥4,920.
+        assert_eq!(settle_bet(400, "03-04", &payouts), ("won", 4920));
+        // Minimum unit win.
+        assert_eq!(settle_bet(100, "03-04", &payouts), ("won", 1230));
+        // A different combo loses with zero payout.
+        assert_eq!(settle_bet(400, "05-02", &payouts), ("lost", 0));
     }
 }

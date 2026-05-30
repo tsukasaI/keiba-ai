@@ -52,6 +52,31 @@ pub struct HistoricalRaceEntry {
     pub popularity: Option<u8>,
 }
 
+/// A forward paper-trading bet: recorded pre-race with real odds, settled post-race.
+///
+/// Several columns (bet-time odds, EV, fractional Kelly, the odds API timestamp,
+/// settled-at) are persisted for later slippage/diagnostic analysis but not yet
+/// read back by any command — hence `dead_code` is allowed here.
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct PaperBet {
+    pub id: i64,
+    pub race_id: String,
+    pub race_date: NaiveDate,
+    pub bet_type: String,
+    pub combination: String,
+    pub probability: f64,
+    pub odds: f64,
+    pub expected_value: f64,
+    pub kelly_fraction: f64,
+    pub stake: i64,
+    pub recorded_at: String,
+    pub odds_official_datetime: Option<String>,
+    pub status: String,
+    pub payout: Option<i64>,
+    pub settled_at: Option<String>,
+}
+
 /// Horse statistics snapshot at race time (for future feature engineering)
 #[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
@@ -103,12 +128,10 @@ impl RaceRepository {
     pub fn new(db_path: &Path) -> Result<Self> {
         // Create parent directories if needed
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)
-                .context("Failed to create database directory")?;
+            std::fs::create_dir_all(parent).context("Failed to create database directory")?;
         }
 
-        let conn = Connection::open(db_path)
-            .context("Failed to open database")?;
+        let conn = Connection::open(db_path).context("Failed to open database")?;
 
         // Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -432,34 +455,183 @@ impl RaceRepository {
 
     /// Get the last scraped date (for resume capability)
     pub fn get_last_race_date(&self) -> Result<Option<NaiveDate>> {
-        let result: Option<String> = self.conn.query_row(
-            "SELECT MAX(race_date) FROM races",
-            [],
-            |row| row.get(0),
-        )?;
+        let result: Option<String> =
+            self.conn
+                .query_row("SELECT MAX(race_date) FROM races", [], |row| row.get(0))?;
 
         Ok(result.and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()))
     }
 
     /// Get race count
     pub fn get_race_count(&self) -> Result<i32> {
-        let count: i32 = self.conn.query_row(
-            "SELECT COUNT(*) FROM races",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i32 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM races", [], |row| row.get(0))?;
         Ok(count)
     }
 
     /// Get total odds count (for debugging/stats)
     #[allow(dead_code)]
     pub fn get_odds_count(&self) -> Result<i32> {
-        let count: i32 = self.conn.query_row(
-            "SELECT COUNT(*) FROM odds_snapshots",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i32 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM odds_snapshots", [], |row| row.get(0))?;
         Ok(count)
+    }
+
+    // ==================== Paper Trading Operations ====================
+
+    /// Record a paper-trading bet (upsert on race_id/bet_type/combination).
+    ///
+    /// Re-recording the same combination overwrites the prior row, resetting it
+    /// to `pending` — recording is idempotent and reflects the latest capture.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_paper_bet(
+        &self,
+        race_id: &str,
+        race_date: NaiveDate,
+        bet_type: &str,
+        combination: &str,
+        probability: f64,
+        odds: f64,
+        expected_value: f64,
+        kelly_fraction: f64,
+        stake: i64,
+        recorded_at: &str,
+        odds_official_datetime: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT OR REPLACE INTO paper_bets
+            (race_id, race_date, bet_type, combination, probability, odds,
+             expected_value, kelly_fraction, stake, recorded_at, odds_official_datetime, status)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending')
+            "#,
+            params![
+                race_id,
+                race_date.to_string(),
+                bet_type,
+                combination,
+                probability,
+                odds,
+                expected_value,
+                kelly_fraction,
+                stake,
+                recorded_at,
+                odds_official_datetime,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get all paper bets still awaiting settlement.
+    pub fn get_pending_bets(&self) -> Result<Vec<PaperBet>> {
+        self.query_paper_bets("WHERE status = 'pending' ORDER BY race_date, race_id", &[])
+    }
+
+    /// Get every paper bet, settled or pending (used by reporting).
+    pub fn get_all_paper_bets(&self) -> Result<Vec<PaperBet>> {
+        self.query_paper_bets("ORDER BY race_date, race_id", &[])
+    }
+
+    /// Shared SELECT for paper_bets with a caller-supplied trailing clause.
+    fn query_paper_bets(
+        &self,
+        clause: &str,
+        params: &[&dyn rusqlite::ToSql],
+    ) -> Result<Vec<PaperBet>> {
+        let sql = format!(
+            r#"
+            SELECT id, race_id, race_date, bet_type, combination, probability, odds,
+                   expected_value, kelly_fraction, stake, recorded_at,
+                   odds_official_datetime, status, payout, settled_at
+            FROM paper_bets
+            {clause}
+            "#
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let bets = stmt
+            .query_map(params, |row| {
+                let date_str: String = row.get(2)?;
+                let race_date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+                    .unwrap_or_else(|_| NaiveDate::from_ymd_opt(2000, 1, 1).unwrap());
+                Ok(PaperBet {
+                    id: row.get(0)?,
+                    race_id: row.get(1)?,
+                    race_date,
+                    bet_type: row.get(3)?,
+                    combination: row.get(4)?,
+                    probability: row.get(5)?,
+                    odds: row.get(6)?,
+                    expected_value: row.get(7)?,
+                    kelly_fraction: row.get(8)?,
+                    stake: row.get(9)?,
+                    recorded_at: row.get(10)?,
+                    odds_official_datetime: row.get(11)?,
+                    status: row.get(12)?,
+                    payout: row.get(13)?,
+                    settled_at: row.get(14)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(bets)
+    }
+
+    /// Settle a paper bet: set its outcome status, payout (yen), and timestamp.
+    pub fn update_bet_settlement(
+        &self,
+        id: i64,
+        status: &str,
+        payout: i64,
+        settled_at: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            r#"
+            UPDATE paper_bets
+            SET status = ?1, payout = ?2, settled_at = ?3
+            WHERE id = ?4
+            "#,
+            params![status, payout, settled_at, id],
+        )?;
+        Ok(())
+    }
+
+    /// Insert an official payout for a winning combination (upsert).
+    pub fn insert_payout(
+        &self,
+        race_id: &str,
+        bet_type: &str,
+        combination: &str,
+        payout_per_100: i64,
+    ) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT OR REPLACE INTO race_payouts
+            (race_id, bet_type, combination, payout_per_100)
+            VALUES (?1, ?2, ?3, ?4)
+            "#,
+            params![race_id, bet_type, combination, payout_per_100],
+        )?;
+        Ok(())
+    }
+
+    /// Get official payouts for a race and bet type: combination -> payout_per_100.
+    pub fn get_payouts(&self, race_id: &str, bet_type: &str) -> Result<HashMap<String, i64>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT combination, payout_per_100
+            FROM race_payouts
+            WHERE race_id = ?1 AND bet_type = ?2
+            "#,
+        )?;
+        let payouts = stmt
+            .query_map([race_id, bet_type], |row| {
+                let combo: String = row.get(0)?;
+                let payout: i64 = row.get(1)?;
+                Ok((combo, payout))
+            })?
+            .collect::<std::result::Result<HashMap<_, _>, _>>()?;
+        Ok(payouts)
     }
 }
 
@@ -553,9 +725,12 @@ mod tests {
         let race = create_test_race();
         repo.insert_race(&race).unwrap();
 
-        repo.insert_odds(&race.race_id, "exacta", "01-02", 15.5).unwrap();
-        repo.insert_odds(&race.race_id, "exacta", "02-01", 22.0).unwrap();
-        repo.insert_odds(&race.race_id, "trifecta", "01-02-03", 150.0).unwrap();
+        repo.insert_odds(&race.race_id, "exacta", "01-02", 15.5)
+            .unwrap();
+        repo.insert_odds(&race.race_id, "exacta", "02-01", 22.0)
+            .unwrap();
+        repo.insert_odds(&race.race_id, "trifecta", "01-02-03", 150.0)
+            .unwrap();
 
         let exacta_odds = repo.get_odds(&race.race_id, "exacta").unwrap();
         assert_eq!(exacta_odds.len(), 2);
@@ -579,6 +754,101 @@ mod tests {
 
         // Should still be 1 race (upsert)
         assert_eq!(repo.get_race_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_paper_bet_lifecycle() {
+        let repo = RaceRepository::in_memory().unwrap();
+        let date = NaiveDate::from_ymd_opt(2024, 12, 22).unwrap();
+
+        // Record two pending bets
+        repo.insert_paper_bet(
+            "202406050811",
+            date,
+            "exacta",
+            "03-04",
+            0.12,
+            9.6,
+            1.15,
+            0.04,
+            400,
+            "2024-12-22T15:00:00",
+            Some("2024-12-22 15:25"),
+        )
+        .unwrap();
+        repo.insert_paper_bet(
+            "202406050811",
+            date,
+            "exacta",
+            "05-02",
+            0.08,
+            14.0,
+            1.12,
+            0.02,
+            200,
+            "2024-12-22T15:00:00",
+            None,
+        )
+        .unwrap();
+
+        let pending = repo.get_pending_bets().unwrap();
+        assert_eq!(pending.len(), 2);
+        assert_eq!(repo.get_all_paper_bets().unwrap().len(), 2);
+
+        // Re-recording the same combination is idempotent (upsert, not duplicate)
+        repo.insert_paper_bet(
+            "202406050811",
+            date,
+            "exacta",
+            "03-04",
+            0.13,
+            9.8,
+            1.27,
+            0.05,
+            500,
+            "2024-12-22T15:10:00",
+            Some("2024-12-22 15:25"),
+        )
+        .unwrap();
+        assert_eq!(repo.get_all_paper_bets().unwrap().len(), 2);
+
+        // Settle the winning bet. Re-read pending first: INSERT OR REPLACE reassigns
+        // the row id on conflict, so the id from the earlier read is stale.
+        let pending = repo.get_pending_bets().unwrap();
+        let winner = pending.iter().find(|b| b.combination == "03-04").unwrap();
+        repo.update_bet_settlement(winner.id, "won", 4900, "2024-12-22T16:00:00")
+            .unwrap();
+
+        let after = repo.get_all_paper_bets().unwrap();
+        let settled = after.iter().find(|b| b.combination == "03-04").unwrap();
+        assert_eq!(settled.status, "won");
+        assert_eq!(settled.payout, Some(4900));
+        // Only the losing bet remains pending
+        assert_eq!(repo.get_pending_bets().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_payout_round_trip() {
+        let repo = RaceRepository::in_memory().unwrap();
+        repo.insert_payout("202406050811", "exacta", "03-04", 1230)
+            .unwrap();
+        repo.insert_payout("202406050811", "trifecta", "03-04-05", 45600)
+            .unwrap();
+        // Upsert: re-inserting updates rather than duplicates
+        repo.insert_payout("202406050811", "exacta", "03-04", 1250)
+            .unwrap();
+
+        let exacta = repo.get_payouts("202406050811", "exacta").unwrap();
+        assert_eq!(exacta.len(), 1);
+        assert_eq!(exacta.get("03-04"), Some(&1250));
+
+        let trifecta = repo.get_payouts("202406050811", "trifecta").unwrap();
+        assert_eq!(trifecta.get("03-04-05"), Some(&45600));
+
+        assert!(repo
+            .get_payouts("202406050811", "quinella")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

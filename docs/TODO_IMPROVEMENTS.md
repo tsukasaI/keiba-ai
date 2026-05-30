@@ -400,7 +400,9 @@ jobs:
 - [ ] Retrain model with blood features (requires JRA-VAN data)
 
 ### v2.0 - Production (Future)
+- [x] Forward paper-trading loop (`paper-record`/`paper-settle`/`paper-report`,
+  official-payout settlement) — the verified-ROI path; see `docs/PAPER_TRADING.md`
 - [ ] JRA-VAN integration
 - [ ] Real-time odds
 - [ ] Monitoring & alerting
-- [ ] Paper trading dashboard
+- [ ] Paper trading dashboard (web UI over the paper_bets table)

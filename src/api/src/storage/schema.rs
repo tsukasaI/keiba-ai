@@ -7,6 +7,8 @@
 //! - horse_stats_snapshot: Historical horse statistics at race time
 //! - jockey_stats_snapshot: Historical jockey statistics at race time
 //! - trainer_stats_snapshot: Historical trainer statistics at race time
+//! - paper_bets: Forward paper-trading bets (recorded pre-race, settled post-race)
+//! - race_payouts: Official payouts (haraimodoshi) for winning combinations
 
 use rusqlite::{Connection, Result};
 
@@ -145,6 +147,46 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // Forward paper-trading bets: recorded pre-race with real odds, settled post-race
+    conn.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS paper_bets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            race_id TEXT NOT NULL,
+            race_date TEXT NOT NULL,
+            bet_type TEXT NOT NULL,
+            combination TEXT NOT NULL,
+            probability REAL NOT NULL,
+            odds REAL NOT NULL,
+            expected_value REAL NOT NULL,
+            kelly_fraction REAL NOT NULL,
+            stake INTEGER NOT NULL,
+            recorded_at TEXT NOT NULL,
+            odds_official_datetime TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            payout INTEGER,
+            settled_at TEXT,
+            UNIQUE(race_id, bet_type, combination)
+        )
+        "#,
+        [],
+    )?;
+
+    // Official payouts (haraimodoshi) for the winning combination of each bet type
+    conn.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS race_payouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            race_id TEXT NOT NULL,
+            bet_type TEXT NOT NULL,
+            combination TEXT NOT NULL,
+            payout_per_100 INTEGER NOT NULL,
+            UNIQUE(race_id, bet_type, combination)
+        )
+        "#,
+        [],
+    )?;
+
     // Create indexes for common queries
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_races_date ON races(race_date)",
@@ -166,6 +208,18 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_odds_race_type ON odds_snapshots(race_id, bet_type)",
         [],
     )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_paper_bets_status ON paper_bets(status)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_paper_bets_race ON paper_bets(race_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_payouts_race_type ON race_payouts(race_id, bet_type)",
+        [],
+    )?;
 
     Ok(())
 }
@@ -185,12 +239,13 @@ mod tests {
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN
                  ('races', 'race_entries', 'odds_snapshots', 'horse_stats_snapshot',
-                  'jockey_stats_snapshot', 'trainer_stats_snapshot')",
+                  'jockey_stats_snapshot', 'trainer_stats_snapshot', 'paper_bets',
+                  'race_payouts')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 6);
+        assert_eq!(count, 8);
     }
 
     #[test]
