@@ -115,18 +115,9 @@ mod tests {
     #[test]
     fn test_get_top_trifectas() {
         let mut trifecta_probs = HashMap::new();
-        trifecta_probs.insert(
-            ("A".to_string(), "B".to_string(), "C".to_string()),
-            0.3,
-        );
-        trifecta_probs.insert(
-            ("A".to_string(), "C".to_string(), "B".to_string()),
-            0.2,
-        );
-        trifecta_probs.insert(
-            ("B".to_string(), "A".to_string(), "C".to_string()),
-            0.15,
-        );
+        trifecta_probs.insert(("A".to_string(), "B".to_string(), "C".to_string()), 0.3);
+        trifecta_probs.insert(("A".to_string(), "C".to_string(), "B".to_string()), 0.2);
+        trifecta_probs.insert(("B".to_string(), "A".to_string(), "C".to_string()), 0.15);
 
         let top = get_top_trifectas(&trifecta_probs, 2);
 

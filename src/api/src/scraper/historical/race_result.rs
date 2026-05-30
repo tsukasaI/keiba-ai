@@ -10,6 +10,15 @@ use scraper::{Html, Selector};
 
 use crate::storage::repository::{HistoricalRaceEntry, HistoricalRaceInfo};
 
+/// One official payout (払戻) row: a winning combination and the yen returned
+/// per 100 yen staked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayoutEntry {
+    pub bet_type: String,
+    pub combination: String,
+    pub payout_per_100: i64,
+}
+
 /// Parser for race result pages
 pub struct RaceResultParser;
 
@@ -17,13 +26,94 @@ impl RaceResultParser {
     /// Parse race result HTML
     ///
     /// Returns race info and list of entries with results
-    pub fn parse(html: &str, race_id: &str) -> Result<(HistoricalRaceInfo, Vec<HistoricalRaceEntry>)> {
+    pub fn parse(
+        html: &str,
+        race_id: &str,
+    ) -> Result<(HistoricalRaceInfo, Vec<HistoricalRaceEntry>)> {
         let document = Html::parse_document(html);
 
         let race_info = Self::parse_race_info(&document, race_id)?;
         let entries = Self::parse_entries(&document, race_id)?;
 
         Ok((race_info, entries))
+    }
+
+    /// Parse the official payout (払戻) table for exacta (馬単) and trifecta (三連単).
+    ///
+    /// Returns one entry per winning combination — normally one each, but dead
+    /// heats can yield several. Combinations are zero-padded, `-`-joined (e.g.
+    /// `"07-05"`, `"07-05-02"`) to match the `odds_snapshots`/`race_payouts` key
+    /// format. Returns an empty vec when no payout table is present (no panic).
+    ///
+    /// Only 馬単/三連単 are extracted; 馬連/三連複/枠連/複勝/単勝 rows are skipped.
+    pub fn parse_payouts(html: &str) -> Vec<PayoutEntry> {
+        let document = Html::parse_document(html);
+        let mut out = Vec::new();
+
+        let tr_sel = Selector::parse("tr").unwrap();
+        let th_sel = Selector::parse("th").unwrap();
+        let td_sel = Selector::parse("td").unwrap();
+        let br_re = Regex::new(r"(?i)<br\s*/?>").unwrap();
+        let tag_re = Regex::new(r"<[^>]*>").unwrap();
+        let num_re = Regex::new(r"\d+").unwrap();
+
+        for row in document.select(&tr_sel) {
+            let Some(th) = row.select(&th_sel).next() else {
+                continue;
+            };
+            let th_text = th.text().collect::<String>();
+            // Neither label is a substring of the other, so order-independent.
+            // 馬連 / 三連複 contain neither "馬単" nor "三連単" and are excluded.
+            let (bet_type, want) = if th_text.contains("三連単") {
+                ("trifecta", 3usize)
+            } else if th_text.contains("馬単") {
+                ("exacta", 2usize)
+            } else {
+                continue;
+            };
+
+            let tds: Vec<_> = row.select(&td_sel).collect();
+            if tds.len() < 2 {
+                continue;
+            }
+
+            // Split each cell on <br> so multi-winner (dead-heat) rows line up;
+            // strip any inline tags before reading digits.
+            let combo_inner = tds[0].inner_html();
+            let payout_lines: Vec<String> = br_re
+                .split(&tds[1].inner_html())
+                .map(|s| tag_re.replace_all(s, "").to_string())
+                .collect();
+
+            for (i, combo_html) in br_re.split(&combo_inner).enumerate() {
+                let combo_text = tag_re.replace_all(combo_html, "");
+                let nums: Vec<&str> = num_re.find_iter(&combo_text).map(|m| m.as_str()).collect();
+                if nums.len() != want {
+                    continue;
+                }
+                let combination = nums
+                    .iter()
+                    .map(|n| format!("{:0>2}", n))
+                    .collect::<Vec<_>>()
+                    .join("-");
+
+                let Some(payout_text) = payout_lines.get(i) else {
+                    continue;
+                };
+                let digits: String = payout_text.chars().filter(|c| c.is_ascii_digit()).collect();
+                let Ok(payout) = digits.parse::<i64>() else {
+                    continue;
+                };
+
+                out.push(PayoutEntry {
+                    bet_type: bet_type.to_string(),
+                    combination,
+                    payout_per_100: payout,
+                });
+            }
+        }
+
+        out
     }
 
     fn parse_race_info(document: &Html, race_id: &str) -> Result<HistoricalRaceInfo> {
@@ -128,7 +218,8 @@ impl RaceResultParser {
         }
 
         // Racecourse - look for pattern like "5回中山8日目"
-        let racecourse_re = Regex::new(r"(札幌|函館|福島|新潟|中山|東京|中京|京都|阪神|小倉)").unwrap();
+        let racecourse_re =
+            Regex::new(r"(札幌|函館|福島|新潟|中山|東京|中京|京都|阪神|小倉)").unwrap();
         if let Some(caps) = racecourse_re.captures(&full_text) {
             info.racecourse = caps[1].to_string();
         }
@@ -235,7 +326,8 @@ impl RaceResultParser {
                 if let Some(t) = document.select(&selector).next() {
                     // Check if it looks like a result table
                     let text = t.text().collect::<String>();
-                    if text.contains("着順") || text.contains("馬番") || text.contains("馬名") {
+                    if text.contains("着順") || text.contains("馬番") || text.contains("馬名")
+                    {
                         table = Some(t);
                         break;
                     }
@@ -502,7 +594,8 @@ impl RaceResultParser {
                             entry.win_odds = Some(odds);
                             // Next cell might be popularity
                             if idx + 1 < cells.len() {
-                                let pop_text = cells[idx + 1].text().collect::<String>().trim().to_string();
+                                let pop_text =
+                                    cells[idx + 1].text().collect::<String>().trim().to_string();
                                 if let Ok(pop) = pop_text.parse::<u8>() {
                                     if pop >= 1 && pop <= 18 {
                                         entry.popularity = Some(pop);
@@ -604,7 +697,10 @@ mod tests {
         assert_eq!(info.surface, "turf");
         assert_eq!(info.track_condition.as_deref(), Some("良"));
         assert_eq!(info.grade.as_deref(), Some("G1"));
-        assert_eq!(info.race_date, NaiveDate::from_ymd_opt(2024, 12, 22).unwrap());
+        assert_eq!(
+            info.race_date,
+            NaiveDate::from_ymd_opt(2024, 12, 22).unwrap()
+        );
     }
 
     #[test]
@@ -635,10 +731,22 @@ mod tests {
 
     #[test]
     fn test_extract_grade() {
-        assert_eq!(RaceResultParser::extract_grade("有馬記念(G1)"), Some("G1".to_string()));
-        assert_eq!(RaceResultParser::extract_grade("日経賞（G2）"), Some("G2".to_string()));
-        assert_eq!(RaceResultParser::extract_grade("中山牝馬S(GIII)"), Some("G3".to_string()));
-        assert_eq!(RaceResultParser::extract_grade("オープン"), Some("OP".to_string()));
+        assert_eq!(
+            RaceResultParser::extract_grade("有馬記念(G1)"),
+            Some("G1".to_string())
+        );
+        assert_eq!(
+            RaceResultParser::extract_grade("日経賞（G2）"),
+            Some("G2".to_string())
+        );
+        assert_eq!(
+            RaceResultParser::extract_grade("中山牝馬S(GIII)"),
+            Some("G3".to_string())
+        );
+        assert_eq!(
+            RaceResultParser::extract_grade("オープン"),
+            Some("OP".to_string())
+        );
         assert_eq!(RaceResultParser::extract_grade("未勝利"), None);
     }
 
@@ -649,5 +757,51 @@ mod tests {
         let (info, entries) = result.unwrap();
         assert_eq!(info.race_id, "test123");
         assert!(entries.is_empty());
+    }
+
+    // Official payout (払戻) table modeled on db.netkeiba.com structure:
+    // pay_table_01 (単勝/複勝/枠連/馬連) + pay_table_02 (ワイド/馬単/三連複/三連単),
+    // with <br>-separated multi-winner rows and comma-formatted yen amounts.
+    const PAYOUT_HTML: &str = r#"<!DOCTYPE html><html><body>
+<table class="pay_table_01">
+  <tr><th class="tan">単勝</th><td class="txt_r">7</td><td class="txt_r">490円</td><td class="txt_r">2</td></tr>
+  <tr><th class="fuku">複勝</th><td class="txt_r">7<br>5<br>2</td><td class="txt_r">190円<br>280円<br>150円</td><td class="txt_r">2<br>5<br>1</td></tr>
+  <tr><th class="uren">馬連</th><td class="txt_r">5 - 7</td><td class="txt_r">2,340円</td><td class="txt_r">7</td></tr>
+</table>
+<table class="pay_table_02">
+  <tr><th class="wide">ワイド</th><td class="txt_r">2 - 7<br>5 - 7<br>2 - 5</td><td class="txt_r">880円<br>720円<br>1,010円</td><td class="txt_r">9<br>6<br>11</td></tr>
+  <tr><th class="utan">馬単</th><td class="txt_r">7 → 5</td><td class="txt_r">4,560円</td><td class="txt_r">13</td></tr>
+  <tr><th class="fuku3">三連複</th><td class="txt_r">2 - 5 - 7</td><td class="txt_r">8,910円</td><td class="txt_r">25</td></tr>
+  <tr><th class="tan3">三連単</th><td class="txt_r">7 → 5 → 2</td><td class="txt_r">45,600円</td><td class="txt_r">98</td></tr>
+</table>
+</body></html>"#;
+
+    #[test]
+    fn test_parse_payouts() {
+        let payouts = RaceResultParser::parse_payouts(PAYOUT_HTML);
+
+        // Only 馬単 + 三連単 captured; 馬連/三連複/ワイド/複勝/単勝 excluded.
+        assert_eq!(payouts.len(), 2, "got: {payouts:?}");
+
+        let exacta = payouts.iter().find(|p| p.bet_type == "exacta").unwrap();
+        assert_eq!(exacta.combination, "07-05");
+        assert_eq!(exacta.payout_per_100, 4560);
+
+        let trifecta = payouts.iter().find(|p| p.bet_type == "trifecta").unwrap();
+        assert_eq!(trifecta.combination, "07-05-02");
+        assert_eq!(trifecta.payout_per_100, 45600);
+
+        // Nothing else slipped through.
+        assert!(payouts
+            .iter()
+            .all(|p| p.bet_type == "exacta" || p.bet_type == "trifecta"));
+    }
+
+    #[test]
+    fn test_parse_payouts_absent() {
+        // No payout table at all → empty, no panic.
+        assert!(RaceResultParser::parse_payouts("<html></html>").is_empty());
+        // Result table present but no payout rows → still empty.
+        assert!(RaceResultParser::parse_payouts(SAMPLE_HTML).is_empty());
     }
 }

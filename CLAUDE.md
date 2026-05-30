@@ -285,6 +285,9 @@ Outputs:
 | `backtest` | Run walk-forward backtest on Kaggle data |
 | `scrape-historical` | Scrape historical race data from db.netkeiba.com |
 | `backtest-historical` | Run backtest on scraped historical data (SQLite) |
+| `paper-record` | **Forward paper-trade** - record EV bets with real pre-race odds (before post time) |
+| `paper-settle` | Settle pending paper bets against official payouts (after the race) |
+| `paper-report` | Report verified ROI / hit-rate from settled paper bets |
 
 #### Live Command Options
 
@@ -389,7 +392,9 @@ Options for `scrape-historical`:
 - ✅ Colored CLI output with progress bars
 - ✅ Historical data scraper (db.netkeiba.com, 2022-2025)
 - ✅ SQLite storage for historical race data
-- ✅ Comprehensive test suite (213 Python + 100 Rust tests)
+- ✅ Forward paper-trading loop (`paper-record` / `paper-settle` / `paper-report`) with
+  official-payout settlement for verified ROI (see `docs/PAPER_TRADING.md`)
+- ✅ Comprehensive test suite (213 Python + 109 Rust tests)
 
 ## Known Issues & Limitations
 
@@ -429,6 +434,31 @@ table. **Treat any ROI from estimated odds as indicative only, not verified.**
 **Paths to real verification**: (1) forward paper-trading — capture live odds (the `live`
 command already fetches them via netkeiba's JSON API) before post time, log EV bets, settle
 after results; or (2) JRA-VAN historical odds (paid).
+
+**Status**: ✅ Path (1) is now implemented as the `paper-record` → `paper-settle` →
+`paper-report` command loop. It captures real pre-race combination odds, settles against the
+**official payout** (haraimodoshi, parsed from the result page into `race_payouts`), and
+reports verified ROI / hit-rate. No real races have been recorded yet, so no verified ROI
+number exists *yet* — but the infrastructure to produce one now does. See
+`docs/PAPER_TRADING.md`. (Captured odds also populate `odds_snapshots`, which
+`backtest-historical` reads — improving historical backtest accuracy as a side effect.)
+
+### Fixed: Live Betting Pipeline Never Produced Correct Bets
+
+**Status**: ✅ Fixed (alongside paper-trading).
+
+Building paper-trading surfaced two latent bugs in the `live` EV→odds→Kelly path that meant
+it had never produced a correct recommended bet:
+
+- **Combination keys never matched.** Predictions were keyed by netkeiba `horse_id` while
+  odds were keyed by zero-padded post position, so the EV join always failed and `live`
+  always printed "No bets meet the EV threshold". EV combos are now translated
+  `horse_id` → post position before the odds lookup (`calculate_ev_exacta/trifecta` take an
+  `id_to_post` map).
+- **EV and Kelly disagreed on the odds unit.** Odds are decimal (e.g. `12.5`); EV used them
+  directly (correct) but Kelly sizing divided by 100, collapsing every stake to the minimum
+  unit. Kelly now uses decimal odds consistently via the `full_kelly_fraction` /
+  `kelly_stake` helpers (shared by `live` and `paper-record`).
 
 ### Performance: Live Command Latency
 

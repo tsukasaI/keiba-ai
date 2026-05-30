@@ -33,11 +33,11 @@ use crate::wide::calculate_wide_probs;
 /// Bet type for backtesting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BetType {
-    Exacta,    // 馬単 - 1st and 2nd in order
-    Trifecta,  // 三連単 - 1st, 2nd, 3rd in order
-    Quinella,  // 馬連 - 1st and 2nd any order
-    Trio,      // 三連複 - 1st, 2nd, 3rd any order
-    Wide,      // ワイド - 2 horses in top 3
+    Exacta,   // 馬単 - 1st and 2nd in order
+    Trifecta, // 三連単 - 1st, 2nd, 3rd in order
+    Quinella, // 馬連 - 1st and 2nd any order
+    Trio,     // 三連複 - 1st, 2nd, 3rd any order
+    Wide,     // ワイド - 2 horses in top 3
 }
 
 impl BetType {
@@ -77,7 +77,7 @@ pub struct BetResult {
     pub race_id: String,
     pub race_date: NaiveDate,
     pub bet_type: BetType,
-    pub combination: Vec<String>,     // Horse numbers in bet order
+    pub combination: Vec<String>,      // Horse numbers in bet order
     pub actual_positions: Vec<String>, // Actual top finishers (1st, 2nd, 3rd)
     pub probability: f64,
     pub odds: f64,
@@ -174,11 +174,11 @@ impl BacktestResults {
 /// Odds data for a single race.
 #[derive(Debug, Clone, Default)]
 pub struct RaceOdds {
-    pub exacta_odds: HashMap<String, f64>,    // "1-2" -> 1520.0 (ordered)
-    pub trifecta_odds: HashMap<String, f64>,  // "1-2-3" -> 15200.0 (ordered)
-    pub quinella_odds: HashMap<String, f64>,  // "1-2" -> 760.0 (unordered, sorted)
-    pub trio_odds: HashMap<String, f64>,      // "1-2-3" -> 5200.0 (unordered, sorted)
-    pub wide_odds: HashMap<String, f64>,      // "1-2" -> 380.0 (unordered, sorted)
+    pub exacta_odds: HashMap<String, f64>, // "1-2" -> 1520.0 (ordered)
+    pub trifecta_odds: HashMap<String, f64>, // "1-2-3" -> 15200.0 (ordered)
+    pub quinella_odds: HashMap<String, f64>, // "1-2" -> 760.0 (unordered, sorted)
+    pub trio_odds: HashMap<String, f64>,   // "1-2-3" -> 5200.0 (unordered, sorted)
+    pub wide_odds: HashMap<String, f64>,   // "1-2" -> 380.0 (unordered, sorted)
 }
 
 impl RaceOdds {
@@ -300,8 +300,7 @@ pub struct RaceData {
 
 /// Load race data from parquet.
 pub fn load_race_data<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<RaceData>> {
-    let df = LazyFrame::scan_parquet(path, Default::default())?
-        .collect()?;
+    let df = LazyFrame::scan_parquet(path, Default::default())?.collect()?;
 
     // Group by race_id
     let race_ids = df.column("race_id")?.str()?;
@@ -507,7 +506,9 @@ impl Backtester {
                             race_date,
                             results,
                             |combo, actual| {
-                                combo[0] == actual[0] && combo[1] == actual[1] && combo[2] == actual[2]
+                                combo[0] == actual[0]
+                                    && combo[1] == actual[1]
+                                    && combo[2] == actual[2]
                             },
                         );
                     }
@@ -755,7 +756,9 @@ pub fn print_backtest_table(results: &BacktestResults) {
     // Data leakage warning
     println!();
     println!("WARNING: Kaggle dataset contains only winning combination odds (post-race).");
-    println!("         Hit rates and ROI may be overly optimistic. Use JRA-VAN for accurate results.");
+    println!(
+        "         Hit rates and ROI may be overly optimistic. Use JRA-VAN for accurate results."
+    );
 }
 
 #[cfg(test)]

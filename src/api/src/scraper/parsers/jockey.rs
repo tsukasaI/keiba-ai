@@ -45,8 +45,8 @@ impl JockeyParser {
         // Calculate rates
         if profile.total_races > 0 {
             profile.win_rate = profile.wins as f64 / profile.total_races as f64;
-            profile.place_rate =
-                (profile.wins + profile.seconds + profile.thirds) as f64 / profile.total_races as f64;
+            profile.place_rate = (profile.wins + profile.seconds + profile.thirds) as f64
+                / profile.total_races as f64;
         }
 
         if profile.year_races > 0 {
@@ -58,11 +58,7 @@ impl JockeyParser {
 
     fn parse_name(document: &Html) -> String {
         // Try multiple selectors
-        let selectors = [
-            ".Name_En",
-            ".db_head_name h1",
-            "h1",
-        ];
+        let selectors = [".Name_En", ".db_head_name h1", "h1"];
 
         for sel_str in selectors {
             if let Ok(selector) = Selector::parse(sel_str) {
@@ -90,9 +86,8 @@ impl JockeyParser {
     }
 
     fn parse_stats_table(document: &Html, profile: &mut JockeyProfile) {
-        let table_selector = Selector::parse("table.ResultsByYears").unwrap_or_else(|_| {
-            Selector::parse("table").unwrap()
-        });
+        let table_selector = Selector::parse("table.ResultsByYears")
+            .unwrap_or_else(|_| Selector::parse("table").unwrap());
         let tr_selector = Selector::parse("tbody tr, tr").unwrap();
         let td_selector = Selector::parse("td").unwrap();
 
@@ -123,8 +118,7 @@ impl JockeyParser {
                     profile.year_wins = wins;
                     profile.year_races = total;
                     if total > 0 {
-                        profile.year_place_rate =
-                            (wins + seconds + thirds) as f64 / total as f64;
+                        profile.year_place_rate = (wins + seconds + thirds) as f64 / total as f64;
                     }
                 }
             }

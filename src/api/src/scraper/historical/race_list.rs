@@ -47,12 +47,14 @@ impl RaceListParser {
         let mut grouped: Vec<(String, Vec<String>)> = Vec::new();
 
         // Look for racecourse sections
-        let section_selector = Selector::parse(".race_kaisai_info, .RaceList_Box, div[class*='Race']").unwrap();
+        let section_selector =
+            Selector::parse(".race_kaisai_info, .RaceList_Box, div[class*='Race']").unwrap();
         let link_selector = Selector::parse("a[href*='/race/']").unwrap();
         let race_id_re = Regex::new(r"/race/(\d{12})/").unwrap();
 
         // Try to find racecourse name in headers
-        let racecourse_re = Regex::new(r"(札幌|函館|福島|新潟|中山|東京|中京|京都|阪神|小倉)").unwrap();
+        let racecourse_re =
+            Regex::new(r"(札幌|函館|福島|新潟|中山|東京|中京|京都|阪神|小倉)").unwrap();
 
         for section in document.select(&section_selector) {
             let section_text = section.text().collect::<String>();

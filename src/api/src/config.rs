@@ -85,7 +85,7 @@ fn default_kelly_fraction() -> f64 {
 }
 
 fn default_bankroll() -> f64 {
-    100000.0  // Default 100,000 yen bankroll
+    100000.0 // Default 100,000 yen bankroll
 }
 
 impl Default for BettingConfig {

@@ -64,13 +64,13 @@ pub struct PastRace {
 /// Aptitude features computed from race history
 #[derive(Debug, Clone, Default)]
 pub struct AptitudeFeatures {
-    pub sprint: f32,        // ≤1400m win rate
-    pub mile: f32,          // 1400-1800m win rate
-    pub intermediate: f32,  // 1800-2200m win rate
-    pub long: f32,          // >2200m win rate
-    pub turf: f32,          // turf place rate
-    pub dirt: f32,          // dirt place rate
-    pub course: f32,        // specific course place rate
+    pub sprint: f32,       // ≤1400m win rate
+    pub mile: f32,         // 1400-1800m win rate
+    pub intermediate: f32, // 1800-2200m win rate
+    pub long: f32,         // >2200m win rate
+    pub turf: f32,         // turf place rate
+    pub dirt: f32,         // dirt place rate
+    pub course: f32,       // specific course place rate
 }
 
 impl HorseProfile {
@@ -92,7 +92,8 @@ impl HorseProfile {
                 // Early = first half, Late = second half
                 let mid = corners.len() / 2;
                 let early: f32 = corners[..mid].iter().map(|&c| c as f32).sum::<f32>() / mid as f32;
-                let late: f32 = corners[mid..].iter().map(|&c| c as f32).sum::<f32>() / (corners.len() - mid) as f32;
+                let late: f32 = corners[mid..].iter().map(|&c| c as f32).sum::<f32>()
+                    / (corners.len() - mid) as f32;
 
                 early_sum += early;
                 late_sum += late;
@@ -142,46 +143,76 @@ impl HorseProfile {
             match race.distance {
                 0..=1400 => {
                     sprint_races += 1;
-                    if is_win { sprint_wins += 1; }
+                    if is_win {
+                        sprint_wins += 1;
+                    }
                 }
                 1401..=1800 => {
                     mile_races += 1;
-                    if is_win { mile_wins += 1; }
+                    if is_win {
+                        mile_wins += 1;
+                    }
                 }
                 1801..=2200 => {
                     intermediate_races += 1;
-                    if is_win { intermediate_wins += 1; }
+                    if is_win {
+                        intermediate_wins += 1;
+                    }
                 }
                 _ => {
                     long_races += 1;
-                    if is_win { long_wins += 1; }
+                    if is_win {
+                        long_wins += 1;
+                    }
                 }
             }
 
             // Surface
             if race.surface == "turf" {
                 turf_races += 1;
-                if is_place { turf_places += 1; }
+                if is_place {
+                    turf_places += 1;
+                }
             } else {
                 dirt_races += 1;
-                if is_place { dirt_places += 1; }
+                if is_place {
+                    dirt_places += 1;
+                }
             }
 
             // Course (use contains for flexible matching)
-            if race.racecourse.contains(current_racecourse) || current_racecourse.contains(&race.racecourse) {
+            if race.racecourse.contains(current_racecourse)
+                || current_racecourse.contains(&race.racecourse)
+            {
                 course_races += 1;
-                if is_place { course_places += 1; }
+                if is_place {
+                    course_places += 1;
+                }
             }
         }
 
         // Calculate rates
-        if sprint_races > 0 { features.sprint = sprint_wins as f32 / sprint_races as f32; }
-        if mile_races > 0 { features.mile = mile_wins as f32 / mile_races as f32; }
-        if intermediate_races > 0 { features.intermediate = intermediate_wins as f32 / intermediate_races as f32; }
-        if long_races > 0 { features.long = long_wins as f32 / long_races as f32; }
-        if turf_races > 0 { features.turf = turf_places as f32 / turf_races as f32; }
-        if dirt_races > 0 { features.dirt = dirt_places as f32 / dirt_races as f32; }
-        if course_races > 0 { features.course = course_places as f32 / course_races as f32; }
+        if sprint_races > 0 {
+            features.sprint = sprint_wins as f32 / sprint_races as f32;
+        }
+        if mile_races > 0 {
+            features.mile = mile_wins as f32 / mile_races as f32;
+        }
+        if intermediate_races > 0 {
+            features.intermediate = intermediate_wins as f32 / intermediate_races as f32;
+        }
+        if long_races > 0 {
+            features.long = long_wins as f32 / long_races as f32;
+        }
+        if turf_races > 0 {
+            features.turf = turf_places as f32 / turf_races as f32;
+        }
+        if dirt_races > 0 {
+            features.dirt = dirt_places as f32 / dirt_races as f32;
+        }
+        if course_races > 0 {
+            features.course = course_places as f32 / course_races as f32;
+        }
 
         features
     }
@@ -189,10 +220,7 @@ impl HorseProfile {
     /// Calculate pace features from past races
     /// Returns (last_3f_avg, last_3f_best, last_3f_last)
     pub fn pace_features(&self) -> (f32, f32, f32) {
-        let times: Vec<f32> = self.past_races
-            .iter()
-            .filter_map(|r| r.last_3f)
-            .collect();
+        let times: Vec<f32> = self.past_races.iter().filter_map(|r| r.last_3f).collect();
 
         if times.is_empty() {
             return (35.0, 35.0, 35.0); // defaults
@@ -311,7 +339,8 @@ impl HorseParser {
                         profile.dam = links[2].text().collect::<String>().trim().to_string();
                     }
                     if links.len() >= 4 {
-                        profile.broodmare_sire = links[3].text().collect::<String>().trim().to_string();
+                        profile.broodmare_sire =
+                            links[3].text().collect::<String>().trim().to_string();
                     }
                     break;
                 }
@@ -352,7 +381,11 @@ impl HorseParser {
     fn parse_past_races(document: &Html) -> Vec<PastRace> {
         let mut races = Vec::new();
 
-        let table_selectors = [".db_h_race_results", "table.nk_tb_common", "table.race_table"];
+        let table_selectors = [
+            ".db_h_race_results",
+            "table.nk_tb_common",
+            "table.race_table",
+        ];
 
         for sel_str in table_selectors {
             if let Ok(selector) = Selector::parse(sel_str) {
@@ -599,8 +632,22 @@ mod tests {
     fn test_running_style_features() {
         let profile = HorseProfile {
             past_races: vec![
-                create_test_race(1600, "turf", "東京", 1, (Some(5), Some(5), Some(4), Some(3)), Some(33.5)),
-                create_test_race(1600, "turf", "東京", 2, (Some(6), Some(6), Some(5), Some(4)), Some(34.0)),
+                create_test_race(
+                    1600,
+                    "turf",
+                    "東京",
+                    1,
+                    (Some(5), Some(5), Some(4), Some(3)),
+                    Some(33.5),
+                ),
+                create_test_race(
+                    1600,
+                    "turf",
+                    "東京",
+                    2,
+                    (Some(6), Some(6), Some(5), Some(4)),
+                    Some(34.0),
+                ),
             ],
             ..Default::default()
         };
@@ -640,7 +687,7 @@ mod tests {
         let aptitude = profile.aptitude_features("東京");
 
         assert!((aptitude.sprint - 0.5).abs() < 0.01); // 1 win in 2 sprint races
-        assert!((aptitude.mile - 1.0).abs() < 0.01);   // 1 win in 1 mile race
+        assert!((aptitude.mile - 1.0).abs() < 0.01); // 1 win in 1 mile race
         assert!((aptitude.intermediate - 0.0).abs() < 0.01); // 0 wins in 1 intermediate race
     }
 
@@ -657,8 +704,8 @@ mod tests {
 
         let aptitude = profile.aptitude_features("東京");
 
-        assert!((aptitude.turf - 1.0).abs() < 0.01);   // 2 places in 2 turf races
-        assert!((aptitude.dirt - 0.0).abs() < 0.01);   // 0 places in 1 dirt race
+        assert!((aptitude.turf - 1.0).abs() < 0.01); // 2 places in 2 turf races
+        assert!((aptitude.dirt - 0.0).abs() < 0.01); // 0 places in 1 dirt race
     }
 
     #[test]
@@ -683,11 +730,46 @@ mod tests {
     fn test_pace_features() {
         let profile = HorseProfile {
             past_races: vec![
-                create_test_race(1600, "turf", "東京", 1, (None, None, None, None), Some(33.0)), // Most recent
-                create_test_race(1600, "turf", "東京", 2, (None, None, None, None), Some(34.0)),
-                create_test_race(1600, "turf", "東京", 3, (None, None, None, None), Some(35.0)),
-                create_test_race(1600, "turf", "東京", 4, (None, None, None, None), Some(34.5)),
-                create_test_race(1600, "turf", "東京", 5, (None, None, None, None), Some(36.0)),
+                create_test_race(
+                    1600,
+                    "turf",
+                    "東京",
+                    1,
+                    (None, None, None, None),
+                    Some(33.0),
+                ), // Most recent
+                create_test_race(
+                    1600,
+                    "turf",
+                    "東京",
+                    2,
+                    (None, None, None, None),
+                    Some(34.0),
+                ),
+                create_test_race(
+                    1600,
+                    "turf",
+                    "東京",
+                    3,
+                    (None, None, None, None),
+                    Some(35.0),
+                ),
+                create_test_race(
+                    1600,
+                    "turf",
+                    "東京",
+                    4,
+                    (None, None, None, None),
+                    Some(34.5),
+                ),
+                create_test_race(
+                    1600,
+                    "turf",
+                    "東京",
+                    5,
+                    (None, None, None, None),
+                    Some(36.0),
+                ),
             ],
             ..Default::default()
         };
@@ -696,7 +778,7 @@ mod tests {
 
         assert_eq!(last, 33.0); // Most recent
         assert_eq!(best, 33.0); // Fastest
-        // Avg of 5 races: (33 + 34 + 35 + 34.5 + 36) / 5 = 34.5
+                                // Avg of 5 races: (33 + 34 + 35 + 34.5 + 36) / 5 = 34.5
         assert!((avg - 34.5).abs() < 0.01);
     }
 

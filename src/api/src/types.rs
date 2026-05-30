@@ -8,7 +8,7 @@ use std::collections::HashMap;
 pub struct HorseFeatures {
     // Basic (5)
     pub horse_age_num: f32,
-    pub horse_sex_encoded: f32,  // 牡:0, 牝:1, セ:2
+    pub horse_sex_encoded: f32, // 牡:0, 牝:1, セ:2
     pub post_position_num: f32,
     pub weight_carried: f32,
     pub horse_weight: f32,
@@ -22,7 +22,7 @@ pub struct HorseFeatures {
     pub distance_num: f32,
     pub is_turf: f32,
     pub is_dirt: f32,
-    pub track_condition_num: f32,  // 良:0, 稍重:1, 重:2, 不良:3
+    pub track_condition_num: f32, // 良:0, 稍重:1, 重:2, 不良:3
     // Past performance (8)
     pub avg_position_last_3: f32,
     pub avg_position_last_5: f32,
