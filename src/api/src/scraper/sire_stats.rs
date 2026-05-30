@@ -56,14 +56,20 @@ pub fn load_sire_stats<P: AsRef<Path>>(path: P) -> Result<&'static SireStatsData
     // Try to get existing or initialize
     let stats = SIRE_STATS.get_or_init(|| {
         if !path.exists() {
-            warn!("Sire stats file not found: {}, using defaults", path.display());
+            warn!(
+                "Sire stats file not found: {}, using defaults",
+                path.display()
+            );
             return SireStatsData::default();
         }
 
         match std::fs::read_to_string(path) {
             Ok(content) => match serde_json::from_str::<SireStatsData>(&content) {
                 Ok(data) => {
-                    info!("Loaded sire stats: {} sires, {} BMS", data.sire_count, data.bms_count);
+                    info!(
+                        "Loaded sire stats: {} sires, {} BMS",
+                        data.sire_count, data.bms_count
+                    );
                     data
                 }
                 Err(e) => {

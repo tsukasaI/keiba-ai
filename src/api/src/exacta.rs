@@ -95,7 +95,9 @@ mod tests {
         let exacta_probs = calculate_exacta_probs(&win_probs, 0.001);
 
         // A-B: 0.5 * 0.3 / (1 - 0.5) = 0.5 * 0.6 = 0.3
-        let a_b = exacta_probs.get(&("A".to_string(), "B".to_string())).unwrap();
+        let a_b = exacta_probs
+            .get(&("A".to_string(), "B".to_string()))
+            .unwrap();
         assert!((a_b - 0.3).abs() < 0.01);
 
         // Should have 6 combinations

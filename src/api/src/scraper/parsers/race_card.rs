@@ -84,9 +84,12 @@ impl RaceCardParser {
                 // Date: YYYY/MM/DD
                 let date_re = Regex::new(r"(\d{4})/(\d{1,2})/(\d{1,2})").unwrap();
                 if let Some(caps) = date_re.captures(&text) {
-                    info.date = format!("{}-{:02}-{:02}", &caps[1],
+                    info.date = format!(
+                        "{}-{:02}-{:02}",
+                        &caps[1],
                         caps[2].parse::<u32>().unwrap_or(1),
-                        caps[3].parse::<u32>().unwrap_or(1));
+                        caps[3].parse::<u32>().unwrap_or(1)
+                    );
                 }
 
                 // Distance and surface: 芝2500m or ダ1200m

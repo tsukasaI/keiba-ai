@@ -48,14 +48,11 @@ impl OddsParser {
 
                     // Parse combo: "0102" -> (1, 2)
                     if combo_str.len() == 4 {
-                        if let (Ok(first), Ok(second)) = (
-                            combo_str[0..2].parse::<u8>(),
-                            combo_str[2..4].parse::<u8>(),
-                        ) {
+                        if let (Ok(first), Ok(second)) =
+                            (combo_str[0..2].parse::<u8>(), combo_str[2..4].parse::<u8>())
+                        {
                             // Parse odds value (remove commas)
-                            if let Ok(odds_val) =
-                                values[0].replace(',', "").parse::<f64>()
-                            {
+                            if let Ok(odds_val) = values[0].replace(',', "").parse::<f64>() {
                                 odds.insert((first, second), odds_val);
                             }
                         }
@@ -103,9 +100,7 @@ impl OddsParser {
                             combo_str[4..6].parse::<u8>(),
                         ) {
                             // Parse odds value (remove commas)
-                            if let Ok(odds_val) =
-                                values[0].replace(',', "").parse::<f64>()
-                            {
+                            if let Ok(odds_val) = values[0].replace(',', "").parse::<f64>() {
                                 odds.insert((first, second, third), odds_val);
                             }
                         }

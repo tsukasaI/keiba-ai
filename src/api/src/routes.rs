@@ -20,12 +20,12 @@ use crate::model::{SharedModel, NUM_FEATURES};
 use crate::quinella::{calculate_quinella_probs, get_top_quinellas};
 use crate::trifecta::{calculate_trifecta_probs, get_top_trifectas};
 use crate::trio::{calculate_trio_probs, get_top_trios};
-use crate::wide::{calculate_wide_probs, get_top_wides};
 use crate::types::{
     BettingSignals, ErrorResponse, ExactaPrediction, HealthResponse, ModelInfoResponse,
     PredictRequest, PredictResponse, Predictions, QuinellaPrediction, TrifectaPrediction,
     TrioPrediction, WidePrediction,
 };
+use crate::wide::{calculate_wide_probs, get_top_wides};
 
 /// Application state shared across handlers.
 pub struct AppState {
@@ -172,7 +172,8 @@ pub async fn predict(
             .collect();
 
         if !req.exacta_odds.is_empty() {
-            betting_signals.exacta = find_value_bets(&exacta_probs, &req.exacta_odds, &state.config.betting);
+            betting_signals.exacta =
+                find_value_bets(&exacta_probs, &req.exacta_odds, &state.config.betting);
         }
     }
 
@@ -268,11 +269,8 @@ pub async fn predict(
             .collect();
 
         if !req.trio_odds.is_empty() {
-            betting_signals.trio = find_value_bets_trio(
-                &trio_probs,
-                &req.trio_odds,
-                &state.config.betting,
-            );
+            betting_signals.trio =
+                find_value_bets_trio(&trio_probs, &req.trio_odds, &state.config.betting);
         }
     }
 
@@ -301,11 +299,8 @@ pub async fn predict(
             .collect();
 
         if !req.wide_odds.is_empty() {
-            betting_signals.wide = find_value_bets_wide(
-                &wide_probs,
-                &req.wide_odds,
-                &state.config.betting,
-            );
+            betting_signals.wide =
+                find_value_bets_wide(&wide_probs, &req.wide_odds, &state.config.betting);
         }
     }
 

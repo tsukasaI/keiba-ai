@@ -202,14 +202,14 @@ impl Defaults {
     const CAREER_RACES: f32 = 0.0;
     // Odds
     const ODDS_LOG: f32 = 2.303; // log(10)
-    // Running style
+                                 // Running style
     const EARLY_POSITION: f32 = 9.0;
     const LATE_POSITION: f32 = 9.0;
     const POSITION_CHANGE: f32 = 0.0;
     // Aptitude (default 0.0 = no data)
     const APTITUDE: f32 = 0.0;
     // Pace (上り3ハロン)
-    const LAST_3F_AVG: f32 = 35.0;  // ~35 seconds for last 600m
+    const LAST_3F_AVG: f32 = 35.0; // ~35 seconds for last 600m
     const LAST_3F_BEST: f32 = 34.0;
     const LAST_3F_LAST: f32 = 35.0;
     // Race classification
@@ -292,7 +292,10 @@ impl FeatureBuilder {
             features.win_rate_last_5 = h.win_rate_last_5 as f32;
             features.place_rate_last_3 = h.place_rate_last_3 as f32;
             features.place_rate_last_5 = h.place_rate_last_5 as f32;
-            features.last_position = h.last_position.map(|p| p as f32).unwrap_or(Defaults::LAST_POSITION);
+            features.last_position = h
+                .last_position
+                .map(|p| p as f32)
+                .unwrap_or(Defaults::LAST_POSITION);
             features.career_races = h.career_races as f32;
         } else {
             features.avg_position_last_3 = Defaults::AVG_POSITION;
@@ -312,9 +315,11 @@ impl FeatureBuilder {
             .unwrap_or(Defaults::ODDS_LOG);
 
         // Running style features from horse history
-        let (early, late, change) = horse
-            .map(|h| h.running_style_features())
-            .unwrap_or((Defaults::EARLY_POSITION, Defaults::LATE_POSITION, Defaults::POSITION_CHANGE));
+        let (early, late, change) = horse.map(|h| h.running_style_features()).unwrap_or((
+            Defaults::EARLY_POSITION,
+            Defaults::LATE_POSITION,
+            Defaults::POSITION_CHANGE,
+        ));
         features.early_position = early;
         features.late_position = late;
         features.position_change = change;
@@ -340,9 +345,11 @@ impl FeatureBuilder {
         }
 
         // Pace features from horse history (上り3ハロン)
-        let (avg, best, last) = horse
-            .map(|h| h.pace_features())
-            .unwrap_or((Defaults::LAST_3F_AVG, Defaults::LAST_3F_BEST, Defaults::LAST_3F_LAST));
+        let (avg, best, last) = horse.map(|h| h.pace_features()).unwrap_or((
+            Defaults::LAST_3F_AVG,
+            Defaults::LAST_3F_BEST,
+            Defaults::LAST_3F_LAST,
+        ));
         features.last_3f_avg = avg;
         features.last_3f_best = best;
         features.last_3f_last = last;
@@ -480,10 +487,10 @@ mod tests {
         let arr = features.to_array_with_blood();
         assert_eq!(arr.len(), 43);
         // Check blood features at the end
-        assert_eq!(arr[39], 0.12);  // sire_win_rate
-        assert_eq!(arr[40], 0.35);  // sire_place_rate
-        assert_eq!(arr[41], 0.10);  // broodmare_sire_win_rate
-        assert_eq!(arr[42], 0.30);  // broodmare_sire_place_rate
+        assert_eq!(arr[39], 0.12); // sire_win_rate
+        assert_eq!(arr[40], 0.35); // sire_place_rate
+        assert_eq!(arr[41], 0.10); // broodmare_sire_win_rate
+        assert_eq!(arr[42], 0.30); // broodmare_sire_place_rate
     }
 
     #[test]

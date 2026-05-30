@@ -83,7 +83,10 @@ pub fn trio_probs_to_tuples(
         .iter()
         .map(|(set, prob)| {
             let horses: Vec<_> = set.iter().cloned().collect();
-            ((horses[0].clone(), horses[1].clone(), horses[2].clone()), *prob)
+            (
+                (horses[0].clone(), horses[1].clone(), horses[2].clone()),
+                *prob,
+            )
         })
         .collect()
 }

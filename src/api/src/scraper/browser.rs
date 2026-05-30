@@ -140,7 +140,11 @@ impl Browser {
     }
 
     /// Fetch page content with custom configuration
-    pub async fn fetch_page_with_config(&self, url: &str, config: &PageLoadConfig) -> Result<String> {
+    pub async fn fetch_page_with_config(
+        &self,
+        url: &str,
+        config: &PageLoadConfig,
+    ) -> Result<String> {
         let page = self
             .browser
             .new_page(url)
@@ -158,7 +162,10 @@ impl Browser {
                 warn!("Page load error (continuing anyway): {}", e);
             }
             Err(_) => {
-                warn!("Page load timeout after {:?}, continuing with partial content", config.timeout);
+                warn!(
+                    "Page load timeout after {:?}, continuing with partial content",
+                    config.timeout
+                );
             }
         }
 
@@ -203,7 +210,10 @@ impl Browser {
             }
 
             // Selector not found, fall through to min_wait
-            warn!("Selector '{}' not found after polling, using fallback", selector);
+            warn!(
+                "Selector '{}' not found after polling, using fallback",
+                selector
+            );
             sleep(config.min_wait).await;
             return Ok(());
         }
