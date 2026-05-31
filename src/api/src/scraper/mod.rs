@@ -53,6 +53,14 @@ pub fn trainer_url(trainer_id: &str) -> String {
     format!("{}/trainer/{}/", DB_URL, trainer_id)
 }
 
+/// Build win (単勝) odds API URL
+pub fn win_odds_url(race_id: &str) -> String {
+    format!(
+        "{}/api/api_get_jra_odds.html?race_id={}&type=1&action=update",
+        BASE_URL, race_id
+    )
+}
+
 /// Build exacta odds API URL
 pub fn exacta_odds_url(race_id: &str) -> String {
     format!(

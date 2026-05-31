@@ -22,6 +22,15 @@ pub struct TrifectaOdds {
     pub official_datetime: Option<String>,
 }
 
+/// Win odds (単勝)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WinOdds {
+    /// post_position (馬番) -> win odds
+    pub odds: HashMap<u8, f64>,
+    /// Official datetime
+    pub official_datetime: Option<String>,
+}
+
 /// Parser for odds JSON API
 pub struct OddsParser;
 
@@ -115,6 +124,38 @@ impl OddsParser {
         Ok(TrifectaOdds {
             odds,
             official_datetime: None,
+        })
+    }
+
+    /// Parse win (単勝) odds from a type=1 JSON response. Reads `data.odds["1"]`,
+    /// whose keys are zero-padded post positions ("01".."18") and whose value's
+    /// first element is the decimal win odds. Returns empty odds when none are
+    /// published yet (`data:""` -> None).
+    pub fn parse_win(json: &str) -> Result<WinOdds> {
+        let response: OddsResponse = serde_json::from_str(json)?;
+
+        let mut odds = HashMap::new();
+        let Some(data) = response.data else {
+            return Ok(WinOdds {
+                odds,
+                official_datetime: None,
+            });
+        };
+
+        // type=1 is win (単勝); type=2 (place) shares the payload and is ignored.
+        if let Some(win_map) = data.odds.get("1") {
+            for (post_str, values) in win_map {
+                if let (Ok(post), Some(first)) = (post_str.parse::<u8>(), values.first()) {
+                    if let Ok(odds_val) = first.replace(',', "").parse::<f64>() {
+                        odds.insert(post, odds_val);
+                    }
+                }
+            }
+        }
+
+        Ok(WinOdds {
+            odds,
+            official_datetime: data.official_datetime,
         })
     }
 }
@@ -231,5 +272,40 @@ mod tests {
             result.official_datetime.as_deref(),
             Some("2026-05-31 09:50:12")
         );
+    }
+
+    #[test]
+    fn test_parse_win() {
+        let json = r#"{
+            "status": "middle",
+            "data": {
+                "official_datetime": "2026-05-31 10:17:07",
+                "odds": {
+                    "1": {
+                        "05": ["2.3", "0.0", "1"],
+                        "13": ["5.2", "0.0", "3"],
+                        "14": ["642.3", "0.0", "16"]
+                    },
+                    "2": { "05": ["1.1", "0.0", "1"] }
+                }
+            }
+        }"#;
+
+        let result = OddsParser::parse_win(json).unwrap();
+        // Only type "1" (win) is read; type "2" (place) is ignored.
+        assert_eq!(result.odds.len(), 3);
+        assert_eq!(result.odds.get(&5), Some(&2.3));
+        assert_eq!(result.odds.get(&14), Some(&642.3));
+        assert_eq!(
+            result.official_datetime.as_deref(),
+            Some("2026-05-31 10:17:07")
+        );
+    }
+
+    #[test]
+    fn test_parse_win_empty_data() {
+        let json = r#"{"status":"middle","data":"","reason":"result odds empty"}"#;
+        let result = OddsParser::parse_win(json).unwrap();
+        assert!(result.odds.is_empty());
     }
 }

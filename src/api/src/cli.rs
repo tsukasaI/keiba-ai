@@ -428,6 +428,9 @@ pub async fn run_predict(
     } else {
         raw_win_probs
     };
+    // Normalize to a proper win distribution (sum 1.0) before Harville — the model
+    // scores horses independently so per-horse P(1st) doesn't sum to 1.
+    let win_probs = normalize_win_probs(win_probs);
 
     let min_prob = config.betting.min_probability;
     let max_combos = config.betting.max_combinations;
@@ -866,7 +869,7 @@ pub async fn predict_live(
     };
 
     // Parse race card
-    let (race_info, entries) = RaceCardParser::parse(&race_card_html, &race_id)?;
+    let (race_info, mut entries) = RaceCardParser::parse(&race_card_html, &race_id)?;
     eprintln!(
         "  Race: {} ({} {}m)",
         race_info.race_name.cyan(),
@@ -1136,6 +1139,37 @@ pub async fn predict_live(
         format!("{}", odds_map.len()).yellow()
     );
 
+    // Inject per-horse win (単勝) odds so the model's market feature (odds_log) is
+    // populated. The scraped race card carries no odds (netkeiba loads them via a
+    // separate AJAX call), so without this every horse gets the same default
+    // odds_log and the model predicts a near-flat field.
+    match fetch_win_odds(&race_id).await {
+        Ok(win_odds) if !win_odds.is_empty() => {
+            let mut filled = 0;
+            for entry in &mut entries {
+                if let Some(&o) = win_odds.get(&entry.post_position) {
+                    entry.win_odds = Some(o);
+                    filled += 1;
+                }
+            }
+            eprintln!(
+                "  Loaded {} win odds ({}/{} horses)",
+                format!("{}", win_odds.len()).yellow(),
+                filled,
+                entries.len()
+            );
+        }
+        Ok(_) => eprintln!(
+            "  {}",
+            "Warning: win odds not published yet; model loses its market feature".yellow()
+        ),
+        Err(e) => eprintln!(
+            "  {}",
+            format!("Warning: win odds fetch failed ({e}); model loses its market feature")
+                .yellow()
+        ),
+    }
+
     // Step 4: Build features
     eprintln!("{}", "Step 4: Building features...".green());
     let mut horse_features = Vec::new();
@@ -1157,6 +1191,13 @@ pub async fn predict_live(
         }
     }
 
+    if verbose {
+        let ol: Vec<f32> = horse_features.iter().map(|f| f.odds_log).collect();
+        let mn = ol.iter().cloned().fold(f32::INFINITY, f32::min);
+        let mx = ol.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        eprintln!("  odds_log range: {mn:.3}..{mx:.3} (constant => model is market-blind)");
+    }
+
     // Step 5: Run model inference
     eprintln!("{}", "Step 5: Running model inference...".green());
     let config = AppConfig::load()?;
@@ -1174,6 +1215,7 @@ pub async fn predict_live(
 
     let position_probs = model.predict(features_array)?;
     let raw_win_probs = extract_win_probs(&position_probs, &horse_ids);
+    let raw_win_sum: f64 = raw_win_probs.values().sum();
 
     // Load and apply calibration
     let calibrator = load_calibrator(&calibration_path);
@@ -1185,6 +1227,18 @@ pub async fn predict_live(
     } else {
         raw_win_probs
     };
+
+    // The position model scores each horse independently, so per-horse P(1st)
+    // does not sum to 1 across the field. Harville (exacta/trifecta/...) assumes a
+    // proper win distribution, so normalize to sum 1.0 before deriving combos.
+    let win_probs = normalize_win_probs(win_probs);
+
+    if verbose {
+        let cal_win_sum: f64 = win_probs.values().sum();
+        eprintln!(
+            "  win-prob sum: raw {raw_win_sum:.3}, normalized {cal_win_sum:.3} (Harville assumes ~1.0)"
+        );
+    }
 
     // Step 6: Calculate probabilities and EV
     eprintln!(
@@ -1460,6 +1514,33 @@ async fn fetch_odds(
     }
 
     Ok((odds_map, official_datetime))
+}
+
+/// Normalize per-horse win probabilities to sum to 1.0. The position model scores
+/// each horse independently, so raw P(1st) values don't form a distribution; the
+/// Harville combo formulas (exacta/trifecta/...) require one. No-op if the sum is
+/// non-positive.
+fn normalize_win_probs(
+    win_probs: std::collections::HashMap<String, f64>,
+) -> std::collections::HashMap<String, f64> {
+    let sum: f64 = win_probs.values().sum();
+    if sum > 0.0 {
+        win_probs.into_iter().map(|(k, v)| (k, v / sum)).collect()
+    } else {
+        win_probs
+    }
+}
+
+/// Fetch per-horse win (単勝) odds, keyed by post position (馬番), via the same
+/// JSON API as the combination odds (type=1). Returns an empty map when odds are
+/// not published yet.
+async fn fetch_win_odds(race_id: &str) -> anyhow::Result<std::collections::HashMap<u8, f64>> {
+    use crate::scraper::parsers::OddsParser;
+
+    let client = reqwest::Client::new();
+    let url = crate::scraper::win_odds_url(race_id);
+    let response = client.get(&url).send().await?.text().await?;
+    Ok(OddsParser::parse_win(&response)?.odds)
 }
 
 /// Calculate EV for exacta bets.
