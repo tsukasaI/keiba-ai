@@ -30,10 +30,9 @@ impl OddsParser {
     pub fn parse_exacta(json: &str) -> Result<ExactaOdds> {
         let response: OddsResponse = serde_json::from_str(json)?;
 
-        if response.status != "result" {
-            anyhow::bail!("Invalid response status: {}", response.status);
-        }
-
+        // Live (pre-race) odds report status "middle"; only finalized odds report
+        // "result". Both are valid to read, so we don't reject on status — a payload
+        // with no odds yet arrives as an empty `data` field (handled as None below).
         let mut odds = HashMap::new();
 
         if let Some(data) = response.data {
@@ -76,10 +75,9 @@ impl OddsParser {
     pub fn parse_trifecta(json: &str) -> Result<TrifectaOdds> {
         let response: OddsResponse = serde_json::from_str(json)?;
 
-        if response.status != "result" {
-            anyhow::bail!("Invalid response status: {}", response.status);
-        }
-
+        // Live (pre-race) odds report status "middle"; only finalized odds report
+        // "result". Both are valid to read, so we don't reject on status — a payload
+        // with no odds yet arrives as an empty `data` field (handled as None below).
         let mut odds = HashMap::new();
 
         if let Some(data) = response.data {
@@ -124,8 +122,25 @@ impl OddsParser {
 /// Internal: API response structure
 #[derive(Deserialize)]
 struct OddsResponse {
-    status: String,
+    #[serde(default, deserialize_with = "data_opt")]
     data: Option<OddsData>,
+}
+
+/// netkeiba returns `"data": ""` (empty string) when no odds are published yet for
+/// the requested type, and `"data": { ... }` once they are. Treat anything that
+/// isn't a JSON object as `None` so an empty/absent payload degrades to "no odds"
+/// instead of a hard parse error.
+fn data_opt<'de, D>(deserializer: D) -> Result<Option<OddsData>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Object(_) => serde_json::from_value(value)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        _ => Ok(None),
+    }
 }
 
 #[derive(Deserialize)]
@@ -176,5 +191,45 @@ mod tests {
         let result = OddsParser::parse_trifecta(json).unwrap();
         assert_eq!(result.odds.get(&(1, 2, 3)), Some(&45.2));
         assert_eq!(result.odds.get(&(1, 3, 2)), Some(&52.3));
+    }
+
+    /// netkeiba returns `"data": ""` (empty string) before odds are published.
+    /// This must degrade to empty odds, not a hard parse error (regression: the
+    /// live `paper-record` path crashed here with "invalid type: string ...").
+    #[test]
+    fn test_parse_empty_data_string() {
+        let json =
+            r#"{"status":"middle","data":"","update_count":"0","reason":"result odds empty"}"#;
+
+        let exacta = OddsParser::parse_exacta(json).unwrap();
+        assert!(exacta.odds.is_empty());
+        assert_eq!(exacta.official_datetime, None);
+
+        let trifecta = OddsParser::parse_trifecta(json).unwrap();
+        assert!(trifecta.odds.is_empty());
+    }
+
+    /// Live (pre-race) odds carry status "middle", not "result". They must still
+    /// parse — the parser must not reject on status.
+    #[test]
+    fn test_parse_exacta_middle_status() {
+        let json = r#"{
+            "status": "middle",
+            "data": {
+                "official_datetime": "2026-05-31 09:50:12",
+                "odds": {
+                    "6": {
+                        "0102": ["472.5", "", "75"]
+                    }
+                }
+            }
+        }"#;
+
+        let result = OddsParser::parse_exacta(json).unwrap();
+        assert_eq!(result.odds.get(&(1, 2)), Some(&472.5));
+        assert_eq!(
+            result.official_datetime.as_deref(),
+            Some("2026-05-31 09:50:12")
+        );
     }
 }

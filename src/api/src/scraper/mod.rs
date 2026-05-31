@@ -56,7 +56,7 @@ pub fn trainer_url(trainer_id: &str) -> String {
 /// Build exacta odds API URL
 pub fn exacta_odds_url(race_id: &str) -> String {
     format!(
-        "{}/api/api_get_jra_odds.html?race_id={}&type=6",
+        "{}/api/api_get_jra_odds.html?race_id={}&type=6&action=update",
         BASE_URL, race_id
     )
 }
@@ -64,7 +64,7 @@ pub fn exacta_odds_url(race_id: &str) -> String {
 /// Build trifecta odds API URL
 pub fn trifecta_odds_url(race_id: &str) -> String {
     format!(
-        "{}/api/api_get_jra_odds.html?race_id={}&type=8",
+        "{}/api/api_get_jra_odds.html?race_id={}&type=8&action=update",
         BASE_URL, race_id
     )
 }
