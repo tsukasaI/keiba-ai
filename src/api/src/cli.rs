@@ -1282,7 +1282,7 @@ pub async fn run_live(
 ) -> anyhow::Result<()> {
     use colored::Colorize;
 
-    let pred = predict_live(
+    let pred = predict_live_bounded(
         race_id.clone(),
         bet_type.clone(),
         ev_threshold,
@@ -1483,7 +1483,7 @@ async fn fetch_odds(
 ) -> anyhow::Result<(std::collections::HashMap<String, f64>, Option<String>)> {
     use crate::scraper::parsers::OddsParser;
 
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = match bet_type {
         "trifecta" => crate::scraper::trifecta_odds_url(race_id),
         _ => crate::scraper::exacta_odds_url(race_id),
@@ -1531,6 +1531,45 @@ fn normalize_win_probs(
     }
 }
 
+/// Run [`predict_live`] under a hard wall-clock deadline. A stalled browser
+/// navigation or HTTP fetch could otherwise hang the command indefinitely
+/// (observed in the wild); this guarantees the call returns. Generous enough for
+/// a full-field race with all profiles uncached.
+async fn predict_live_bounded(
+    race_id: String,
+    bet_type: String,
+    ev_threshold: f64,
+    calibration_path: Option<PathBuf>,
+    force: bool,
+    verbose: bool,
+) -> anyhow::Result<LivePrediction> {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
+    tokio::time::timeout(
+        DEADLINE,
+        predict_live(
+            race_id,
+            bet_type,
+            ev_threshold,
+            calibration_path,
+            force,
+            verbose,
+        ),
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!("live prediction timed out after {DEADLINE:?} (network/browser stall)")
+    })?
+}
+
+/// HTTP client with a request timeout, so a stalled netkeiba endpoint can't hang
+/// a fetch forever (the default reqwest client has no timeout).
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
 /// Fetch official 馬単/三連単 payouts from the live race.netkeiba result page.
 /// The page is server-rendered, so a plain HTTP GET suffices (no browser); rows
 /// are matched by ASCII class, so EUC-JP→UTF-8 decoding of labels is harmless.
@@ -1540,7 +1579,7 @@ async fn fetch_live_payouts(
 ) -> anyhow::Result<Vec<crate::scraper::historical::race_result::PayoutEntry>> {
     use crate::scraper::historical::RaceResultParser;
 
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = crate::scraper::result_url_live(race_id);
     let body = client.get(&url).send().await?.text().await?;
     Ok(RaceResultParser::parse_payouts_live(&body))
@@ -1552,7 +1591,7 @@ async fn fetch_live_payouts(
 async fn fetch_win_odds(race_id: &str) -> anyhow::Result<std::collections::HashMap<u8, f64>> {
     use crate::scraper::parsers::OddsParser;
 
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = crate::scraper::win_odds_url(race_id);
     let response = client.get(&url).send().await?.text().await?;
     Ok(OddsParser::parse_win(&response)?.odds)
@@ -1661,7 +1700,7 @@ pub async fn run_paper_record(
     use chrono::{NaiveDate, Utc};
     use colored::Colorize;
 
-    let pred = predict_live(
+    let pred = predict_live_bounded(
         race_id.clone(),
         bet_type.clone(),
         ev_threshold,
