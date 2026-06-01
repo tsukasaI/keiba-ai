@@ -116,6 +116,84 @@ impl RaceResultParser {
         out
     }
 
+    /// Parse the official payout table from a **race.netkeiba.com** result page
+    /// (`/race/result.html?race_id=...`). Unlike db.netkeiba (which lags same-day
+    /// races by a day or more), the live site publishes results immediately.
+    ///
+    /// Rows are matched by their ASCII CSS class (`Umatan` = 馬単/exacta,
+    /// `Tan3` = 3連単/trifecta) rather than the Japanese `<th>` label, so parsing
+    /// is robust even if the EUC-JP page is decoded as UTF-8. The winning
+    /// combination is the `<li>` numbers in `td.Result` (zero-padded, `-`-joined);
+    /// the payout is the digits in `td.Payout`. Dead heats (multiple `<ul>` combos
+    /// paired with `<br>`-separated payouts) are handled positionally.
+    pub fn parse_payouts_live(html: &str) -> Vec<PayoutEntry> {
+        let document = Html::parse_document(html);
+        let tr_sel = Selector::parse("tr").unwrap();
+        let result_ul_sel = Selector::parse("td.Result ul").unwrap();
+        let li_sel = Selector::parse("li").unwrap();
+        let payout_sel = Selector::parse("td.Payout").unwrap();
+        let br_re = Regex::new(r"(?i)<br\s*/?>").unwrap();
+        let tag_re = Regex::new(r"<[^>]*>").unwrap();
+
+        let mut out = Vec::new();
+        for row in document.select(&tr_sel) {
+            let class = row.value().attr("class").unwrap_or("");
+            let (bet_type, want) = if class.contains("Tan3") {
+                ("trifecta", 3usize)
+            } else if class.contains("Umatan") {
+                ("exacta", 2usize)
+            } else {
+                continue;
+            };
+
+            // Each <ul> in td.Result is one winning combination (>1 only on dead heat).
+            let combos: Vec<Vec<u32>> = row
+                .select(&result_ul_sel)
+                .map(|ul| {
+                    ul.select(&li_sel)
+                        .filter_map(|li| li.text().collect::<String>().trim().parse::<u32>().ok())
+                        .collect()
+                })
+                .collect();
+
+            // Payouts: split td.Payout on <br>, keep digits per segment.
+            let Some(payout_td) = row.select(&payout_sel).next() else {
+                continue;
+            };
+            let payout_vals: Vec<i64> = br_re
+                .split(&payout_td.inner_html())
+                .filter_map(|seg| {
+                    let digits: String = tag_re
+                        .replace_all(seg, "")
+                        .chars()
+                        .filter(|c| c.is_ascii_digit())
+                        .collect();
+                    digits.parse::<i64>().ok()
+                })
+                .collect();
+
+            for (i, combo) in combos.iter().enumerate() {
+                if combo.len() != want {
+                    continue;
+                }
+                let Some(&payout) = payout_vals.get(i) else {
+                    continue;
+                };
+                let combination = combo
+                    .iter()
+                    .map(|n| format!("{n:02}"))
+                    .collect::<Vec<_>>()
+                    .join("-");
+                out.push(PayoutEntry {
+                    bet_type: bet_type.to_string(),
+                    combination,
+                    payout_per_100: payout,
+                });
+            }
+        }
+        out
+    }
+
     fn parse_race_info(document: &Html, race_id: &str) -> Result<HistoricalRaceInfo> {
         let mut info = HistoricalRaceInfo {
             race_id: race_id.to_string(),
@@ -803,5 +881,43 @@ mod tests {
         assert!(RaceResultParser::parse_payouts("<html></html>").is_empty());
         // Result table present but no payout rows → still empty.
         assert!(RaceResultParser::parse_payouts(SAMPLE_HTML).is_empty());
+    }
+
+    // Real race.netkeiba.com result markup (202605021209 薫風S): rows keyed by
+    // ASCII class, combo in <li><span>, payout in td.Payout.
+    const LIVE_PAYOUT_HTML: &str = r#"
+<table class="Payout_Detail_Table"><tbody>
+<tr class="Tansho"><th>単勝</th><td class="Result"><div><span>14</span></div></td>
+  <td class="Payout"><span>290円</span></td></tr>
+<tr class="Umaren"><th>馬連</th><td class="Result"><ul><li><span>9</span></li><li><span>14</span></li><li></li></ul></td>
+  <td class="Payout"><span>1,330円</span></td></tr>
+</tbody></table>
+<table class="Payout_Detail_Table"><tbody>
+<tr class="Wide"><th>ワイド</th><td class="Result"><ul><li><span>9</span></li><li><span>14</span></li><li></li></ul><ul><li><span>11</span></li><li><span>14</span></li><li></li></ul></td>
+  <td class="Payout"><span>490円<br />330円</span></td></tr>
+<tr class="Umatan"><th>馬単</th><td class="Result"><ul><li><span>14</span></li><li><span>9</span></li><li></li></ul></td>
+  <td class="Payout"><span>2,040円</span></td></tr>
+<tr class="Tan3"><th>3連単</th><td class="Result"><ul><li><span>14</span></li><li><span>9</span></li><li><span>11</span></li></ul></td>
+  <td class="Payout"><span>6,630円</span></td></tr>
+</tbody></table>"#;
+
+    #[test]
+    fn test_parse_payouts_live() {
+        let payouts = RaceResultParser::parse_payouts_live(LIVE_PAYOUT_HTML);
+        // Only 馬単 (Umatan) + 3連単 (Tan3); 単勝/馬連/ワイド excluded.
+        assert_eq!(payouts.len(), 2, "got: {payouts:?}");
+
+        let exacta = payouts.iter().find(|p| p.bet_type == "exacta").unwrap();
+        assert_eq!(exacta.combination, "14-09");
+        assert_eq!(exacta.payout_per_100, 2040);
+
+        let trifecta = payouts.iter().find(|p| p.bet_type == "trifecta").unwrap();
+        assert_eq!(trifecta.combination, "14-09-11");
+        assert_eq!(trifecta.payout_per_100, 6630);
+    }
+
+    #[test]
+    fn test_parse_payouts_live_absent() {
+        assert!(RaceResultParser::parse_payouts_live("<html></html>").is_empty());
     }
 }

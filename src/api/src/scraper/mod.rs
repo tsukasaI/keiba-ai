@@ -38,6 +38,12 @@ pub fn race_card_url(race_id: &str) -> String {
     format!("{}/race/shutuba.html?race_id={}", BASE_URL, race_id)
 }
 
+/// Build the live result page URL (race.netkeiba.com). This publishes results
+/// (finish order + 払戻) immediately, whereas db.netkeiba lags same-day races.
+pub fn result_url_live(race_id: &str) -> String {
+    format!("{}/race/result.html?race_id={}", BASE_URL, race_id)
+}
+
 /// Build horse profile URL
 pub fn horse_url(horse_id: &str) -> String {
     format!("{}/horse/{}/", DB_URL, horse_id)

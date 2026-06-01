@@ -1531,6 +1531,21 @@ fn normalize_win_probs(
     }
 }
 
+/// Fetch official 馬単/三連単 payouts from the live race.netkeiba result page.
+/// The page is server-rendered, so a plain HTTP GET suffices (no browser); rows
+/// are matched by ASCII class, so EUC-JP→UTF-8 decoding of labels is harmless.
+/// Returns empty when results aren't published yet.
+async fn fetch_live_payouts(
+    race_id: &str,
+) -> anyhow::Result<Vec<crate::scraper::historical::race_result::PayoutEntry>> {
+    use crate::scraper::historical::RaceResultParser;
+
+    let client = reqwest::Client::new();
+    let url = crate::scraper::result_url_live(race_id);
+    let body = client.get(&url).send().await?.text().await?;
+    Ok(RaceResultParser::parse_payouts_live(&body))
+}
+
 /// Fetch per-horse win (単勝) odds, keyed by post position (馬番), via the same
 /// JSON API as the combination odds (type=1). Returns an empty map when odds are
 /// not published yet.
@@ -1818,47 +1833,71 @@ pub async fn run_paper_settle(
                 .unwrap_or(false)
         });
 
-        // Scrape the result page once if any needed payout is missing.
+        // Acquire payouts if any needed type is missing. Prefer the live site
+        // (race.netkeiba), which publishes results immediately; db.netkeiba lags
+        // same-day races by a day or more, so use it only as a fallback.
         if !have_all {
-            if browser.is_none() {
-                eprintln!("{}", "Launching browser...".dimmed());
-                browser = Some(Browser::launch().await?);
-            }
-            let b = browser.as_ref().unwrap();
-            let url = race_result_url(rid);
-            if verbose {
-                eprintln!("  Fetching result: {url}");
-            }
-            match b.fetch_page(&url).await {
-                Ok(html) => {
-                    let payouts = RaceResultParser::parse_payouts(&html);
-                    if payouts.is_empty() {
-                        if verbose {
-                            eprintln!(
-                                "  {}",
-                                format!("No payouts for {rid} yet (race may not have finished)")
+            let live_payouts = fetch_live_payouts(rid).await.unwrap_or_default();
+            if !live_payouts.is_empty() {
+                if verbose {
+                    eprintln!(
+                        "  {} payout entries from race.netkeiba for {rid}",
+                        live_payouts.len()
+                    );
+                }
+                for p in &live_payouts {
+                    repo.insert_payout(rid, &p.bet_type, &p.combination, p.payout_per_100)?;
+                }
+            } else {
+                // Fallback: db.netkeiba result page (browser) — also yields finish
+                // entries for the cross-check, but lags same-day races.
+                if browser.is_none() {
+                    eprintln!("{}", "Launching browser...".dimmed());
+                    browser = Some(Browser::launch().await?);
+                }
+                let b = browser.as_ref().unwrap();
+                let url = race_result_url(rid);
+                if verbose {
+                    eprintln!("  Fetching result (db.netkeiba fallback): {url}");
+                }
+                match b.fetch_page(&url).await {
+                    Ok(html) => {
+                        let payouts = RaceResultParser::parse_payouts(&html);
+                        if payouts.is_empty() {
+                            if verbose {
+                                eprintln!(
+                                    "  {}",
+                                    format!(
+                                        "No payouts for {rid} yet (race may not have finished)"
+                                    )
                                     .yellow()
-                            );
-                        }
-                    } else {
-                        // Persist race + entries for completeness and the finish cross-check.
-                        if let Ok((race_info, entries)) = RaceResultParser::parse(&html, rid) {
-                            let _ = repo.insert_race(&race_info);
-                            for e in &entries {
-                                let _ = repo.insert_entry(e);
+                                );
+                            }
+                        } else {
+                            // Persist race + entries for the finish cross-check.
+                            if let Ok((race_info, entries)) = RaceResultParser::parse(&html, rid) {
+                                let _ = repo.insert_race(&race_info);
+                                for e in &entries {
+                                    let _ = repo.insert_entry(e);
+                                }
+                            }
+                            for p in &payouts {
+                                repo.insert_payout(
+                                    rid,
+                                    &p.bet_type,
+                                    &p.combination,
+                                    p.payout_per_100,
+                                )?;
                             }
                         }
-                        for p in &payouts {
-                            repo.insert_payout(rid, &p.bet_type, &p.combination, p.payout_per_100)?;
-                        }
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                }
-                Err(e) => {
-                    eprintln!(
-                        "  {}",
-                        format!("Failed to fetch result for {rid}: {e}").red()
-                    );
+                    Err(e) => {
+                        eprintln!(
+                            "  {}",
+                            format!("Failed to fetch result for {rid}: {e}").red()
+                        );
+                    }
                 }
             }
         }
