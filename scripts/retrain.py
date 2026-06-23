@@ -288,8 +288,12 @@ def run_optimization(model_type: str = "lgbm", n_trials: int = 50) -> dict:
     return optimizer.get_best_params()
 
 
-def run_validation() -> Tuple[dict, List[Dict]]:
+def run_validation(model_type: str = "lgbm") -> Tuple[dict, List[Dict]]:
     """Step 3: Walk-forward backtest with calibration.
+
+    Args:
+        model_type: Model family to retrain per walk-forward period, so the fitted
+            calibration matches the deployed model (e.g. 'catboost').
 
     Returns:
         Tuple of (results_dict, calibration_predictions)
@@ -307,8 +311,18 @@ def run_validation() -> Tuple[dict, List[Dict]]:
     df = df[df[TARGET_COL].notna()]
     logger.info(f"Loaded {len(df):,} samples")
 
-    # Create backtester with isotonic calibration
-    backtester = Backtester(calibration_method="isotonic")
+    # Create backtester with isotonic calibration, fitting on the deployed model family.
+    # NOTE: calibration is fit only on bets the walk-forward actually placed, which needs
+    # features.parquet and the combination-odds CSV to share race_ids. The current data
+    # does NOT overlap (features are netkeiba 2022-2024; odds are Kaggle 1986-2021), so a
+    # run here yields 0 bets -> fit_calibration falls back to temperature=1.0. A meaningful
+    # CatBoost re-fit needs odds covering the feature window (JRA-VAN). See
+    # docs/TODO_IMPROVEMENTS.md "Improved calibration".
+    logger.info(f"Walk-forward model family: {model_type}")
+    backtester = Backtester(
+        calibration_method="isotonic",
+        model_class=get_model_class(model_type),
+    )
 
     # Run walk-forward backtest
     results, period_results = backtester.run_walkforward_backtest(
@@ -633,7 +647,7 @@ Examples:
     try:
         if args.validate_only:
             # Only validation
-            validation_results, calibration_predictions = run_validation()
+            validation_results, calibration_predictions = run_validation(args.model_type)
         elif args.export_only:
             # Only export (no calibration data available)
             if not run_export():
@@ -657,7 +671,7 @@ Examples:
                 sys.exit(1)
 
             # Step 3: Validation (also collects calibration data)
-            validation_results, calibration_predictions = run_validation()
+            validation_results, calibration_predictions = run_validation(args.model_type)
 
             # Step 4: Export with fitted calibration
             # Note: ONNX export only works for LightGBM

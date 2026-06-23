@@ -49,6 +49,7 @@ class Backtester:
         calibration_method: Optional[str] = None,
         filter_segments: bool = False,
         custom_filters: Optional[Dict[str, List[str]]] = None,
+        model_class: type = PositionProbabilityModel,
     ):
         self.ev_threshold = ev_threshold
         self.bet_unit = bet_unit
@@ -56,6 +57,10 @@ class Backtester:
         self.calibration_method = calibration_method
         self.filter_segments = filter_segments
         self.segment_filters = custom_filters or PROFITABLE_SEGMENTS
+        # Per-period model is rebuilt by this class so walk-forward calibration is
+        # fit on the deployed model family. Any class exposing train()/predict_race()
+        # works (PositionProbabilityModel, CatBoostPositionModel, ...).
+        self.model_class = model_class
 
         self.exacta_calc = ExactaCalculator()
         self.ev_calc = ExpectedValueCalculator(ev_threshold=ev_threshold)
@@ -371,7 +376,7 @@ class Backtester:
             X_train = model_train_df[self.feature_cols]
             y_train = self._prepare_target(model_train_df[TARGET_COL])
 
-            model = PositionProbabilityModel()
+            model = self.model_class()
             model.train(X_train, y_train)
 
             # Train calibrator if specified

@@ -243,6 +243,41 @@ python scripts/retrain.py --model-type ensemble --stacking
 
 ---
 
+### Calibration: CatBoost Re-fit (Blocked on Data)
+
+**Status**: ⚠️ Infrastructure wired, re-fit blocked on data.
+
+The deployed model is CatBoost (odds-aware, exported to ONNX), but
+`data/models/calibration.json` (temperature 0.991) was fit during the LightGBM era.
+Walk-forward calibration is now **model-family-aware**: `Backtester` takes a
+`model_class`, and `retrain.py --validate-only --model-type catboost` retrains CatBoost
+per period and fits the temperature on its out-of-sample bets.
+
+**Why it cannot be re-fit today**:
+1. **Zero odds overlap**. Calibration is fit only on bets the walk-forward placed, which
+   needs `features.parquet` and the combination-odds CSV to share race_ids. They do not:
+   features are netkeiba **2022-2024** (2,839 races), the only combination odds are Kaggle
+   **1986-2021** (121,938 races) — overlap is **0**. A run yields 0 bets, so
+   `fit_calibration` falls back to **temperature = 1.0** (identity), which is *worse* than
+   keeping the LightGBM-fit 0.991. This is the same root cause as "ROI unverified": no
+   combination odds exist for the netkeiba era.
+2. **Local env**: LightGBM fails to load (`libomp.dylib` missing), so `retrain.py` cannot
+   import/run here at all (`brew install libomp` to fix).
+
+**Impact is near-zero regardless**: temperature 0.991 is a near-identity transform.
+
+**To actually re-fit** (once unblocked): obtain combination odds covering the 2022-2024
+feature window (JRA-VAN), then run
+`python scripts/retrain.py --validate-only --model-type catboost`. The ONNX is untouched
+by this path (`run_export`'s `convert_lightgbm` is LightGBM-only — do **not** run
+`--export-only` against a CatBoost model or it overwrites the CatBoost ONNX).
+
+**Caveat for whoever runs it**: `CatBoostPositionModel.train` sets `use_best_model=True`
+but the walk-forward calls it without an eval_set; CatBoost may require a non-empty
+eval_set there. Untested locally (env blocker above).
+
+---
+
 ### Priority 4: Running Style Deep Features
 
 **Current State**: Simple early/late position features
@@ -396,7 +431,9 @@ jobs:
 - [x] Blood features infrastructure (sire_stats.rs, generate_sire_stats.py)
 - [x] Feature importance export
 - [x] Enhanced ensemble (stacking with meta-learner)
-- [ ] Improved calibration
+- [~] Improved calibration — walk-forward now model-family-aware (`Backtester` takes
+  `model_class`); CatBoost re-fit blocked on data overlap + env (see "Calibration:
+  CatBoost Re-fit" above)
 - [ ] Retrain model with blood features (requires JRA-VAN data)
 
 ### v2.0 - Production (Future)
