@@ -1,199 +1,162 @@
 """
-Export LightGBM model to ONNX format for Rust inference.
+Export the trained position model to ONNX for Rust inference.
+
+Supports both CatBoost (default — the deployed model, which weights market odds
+heavily) and LightGBM. Both export a graph whose output index 1 is a raw
+[N, 18] float probability tensor (ZipMap stripped), matching what the Rust
+consumer expects (`src/api/src/model.rs::predict` reads `outputs[1]` by index).
 
 Usage:
-    uv run python scripts/export_onnx.py
+    uv run python scripts/export_onnx.py                 # auto-detect from default pkl
+    uv run python scripts/export_onnx.py --model-type catboost
+    uv run python scripts/export_onnx.py --pkl data/models/position_model_lgbm.pkl
 """
 
+import argparse
 import logging
+import pickle
 from pathlib import Path
 
 import numpy as np
 import onnx
-from onnxmltools import convert_lightgbm
-from onnxmltools.convert.common.data_types import FloatTensorType
+from onnx import helper
 
-from src.models import PositionProbabilityModel
 from src.models.config import FEATURES
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Paths (updated to 39-feature model)
-MODEL_PATH = Path("data/models/position_model_39features.pkl")
 ONNX_PATH = Path("data/models/position_model.onnx")
+DEFAULT_PKL = {
+    "catboost": Path("data/models/position_model_catboost.pkl"),
+    "lgbm": Path("data/models/position_model_39features.pkl"),
+}
+NUM_CLASSES = 18
 
 
-def export_to_onnx():
-    """Export LightGBM model to ONNX format."""
-    logger.info(f"Loading model from {MODEL_PATH}")
-    model = PositionProbabilityModel.load(MODEL_PATH)
+def _load_model(pkl_path: Path):
+    """Return the underlying estimator from a saved model dict."""
+    with open(pkl_path, "rb") as f:
+        data = pickle.load(f)
+    return data["model"] if isinstance(data, dict) else data
 
-    # Get the LightGBM booster
-    lgb_model = model.model
 
-    # Define input shape
-    n_features = len(FEATURES)
-    initial_types = [("input", FloatTensorType([None, n_features]))]
+def _strip_zipmap(onnx_model):
+    """Replace the ZipMap (sequence-of-maps) probability output with a raw
+    [None, NUM_CLASSES] float tensor at output index 1.
 
-    logger.info(f"Converting to ONNX (features: {n_features})")
-
-    # Convert to ONNX
-    # Note: zipmap option is handled via post-processing or onnxmltools convert options
-    onnx_model = convert_lightgbm(
-        lgb_model,
-        initial_types=initial_types,
-        target_opset=12,
-    )
-
-    # Remove ZipMap operator from the model to get raw tensor output
-    # LightGBM classifiers output ZipMap by default which is hard to handle in Rust
-    from onnx import helper
-    import onnx
-
-    # Find and remove ZipMap nodes
+    Both CatBoost's native ONNX export and onnxmltools' LightGBM conversion emit
+    a ZipMap that turns class probabilities into a sequence of {class: prob}
+    maps. The Rust side reads `outputs[1]` as a 2D float tensor, so we drop the
+    ZipMap node and expose its input tensor directly.
+    """
     graph = onnx_model.graph
-    nodes_to_remove = []
     zipmap_input = None
-
-    for node in graph.node:
+    for node in list(graph.node):
         if node.op_type == "ZipMap":
-            nodes_to_remove.append(node)
             zipmap_input = node.input[0]
-
-    if zipmap_input:
-        # Remove ZipMap nodes
-        for node in nodes_to_remove:
             graph.node.remove(node)
+    if zipmap_input is None:
+        raise RuntimeError("No ZipMap node found; cannot locate the probability tensor")
 
-        # Print current outputs for debugging
-        logger.info(f"Current outputs: {[o.name for o in graph.output]}")
-        logger.info(f"ZipMap input was: {zipmap_input}")
-
-        # Update graph outputs to use ZipMap input directly
-        # Clear all outputs and create new ones
-        while len(graph.output) > 0:
-            graph.output.pop()
-
-        # Add label output (keep original name 'label')
-        label_output = helper.make_tensor_value_info(
-            "label",
-            onnx.TensorProto.INT64,
-            [None],
+    logger.info("Stripping ZipMap; probability tensor = %s", zipmap_input)
+    while len(graph.output) > 0:
+        graph.output.pop()
+    graph.output.append(
+        helper.make_tensor_value_info("label", onnx.TensorProto.INT64, [None])
+    )
+    graph.output.append(
+        helper.make_tensor_value_info(
+            zipmap_input, onnx.TensorProto.FLOAT, [None, NUM_CLASSES]
         )
-        graph.output.append(label_output)
-
-        # Add probability tensor output using the ZipMap input name (lgbmprobabilities)
-        prob_output = helper.make_tensor_value_info(
-            zipmap_input,
-            onnx.TensorProto.FLOAT,
-            [None, 18],  # [batch_size, num_classes]
-        )
-        graph.output.append(prob_output)
-
-        logger.info("Removed ZipMap operator for simpler tensor output")
-
-    # Save the model
-    ONNX_PATH.parent.mkdir(parents=True, exist_ok=True)
-    onnx.save_model(onnx_model, str(ONNX_PATH))
-    logger.info(f"ONNX model saved to {ONNX_PATH}")
-
-    # Verify the model
-    logger.info("Verifying ONNX model...")
-    onnx_model = onnx.load(str(ONNX_PATH))
-    onnx.checker.check_model(onnx_model)
-    logger.info("ONNX model verification passed")
-
-    # Print model info
-    print("\n" + "=" * 50)
-    print("ONNX MODEL INFO")
-    print("=" * 50)
-    print(f"Input: {onnx_model.graph.input[0].name}")
-    print(f"  Shape: [batch_size, {n_features}]")
-    print(f"  Features: {FEATURES}")
-    print(f"\nOutputs:")
-    for output in onnx_model.graph.output:
-        print(f"  - {output.name}")
-    print("=" * 50)
-
+    )
     return onnx_model
 
 
-def verify_inference():
-    """Verify ONNX inference matches Python inference."""
+def export_catboost(pkl_path: Path):
+    """Export a CatBoostClassifier to ONNX via its native exporter + ZipMap strip."""
+    model = _load_model(pkl_path)
+    logger.info("Loaded %s from %s", type(model).__name__, pkl_path)
+
+    raw_path = ONNX_PATH.with_suffix(".catboost_raw.onnx")
+    model.save_model(str(raw_path), format="onnx")
+    onnx_model = _strip_zipmap(onnx.load(str(raw_path)))
+    onnx.checker.check_model(onnx_model)
+    ONNX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    onnx.save_model(onnx_model, str(ONNX_PATH))
+    raw_path.unlink(missing_ok=True)
+    logger.info("ONNX model saved to %s", ONNX_PATH)
+    return model
+
+
+def export_lightgbm(pkl_path: Path):
+    """Export a LightGBM Booster to ONNX via onnxmltools + ZipMap strip."""
+    from onnxmltools import convert_lightgbm
+    from onnxmltools.convert.common.data_types import FloatTensorType
+
+    model = _load_model(pkl_path)
+    logger.info("Loaded %s from %s", type(model).__name__, pkl_path)
+
+    initial_types = [("input", FloatTensorType([None, len(FEATURES)]))]
+    onnx_model = convert_lightgbm(model, initial_types=initial_types, target_opset=12)
+    onnx_model = _strip_zipmap(onnx_model)
+    onnx.checker.check_model(onnx_model)
+    ONNX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    onnx.save_model(onnx_model, str(ONNX_PATH))
+    logger.info("ONNX model saved to %s", ONNX_PATH)
+    return model
+
+
+def _predict_proba(model, X):
+    """Class probabilities for either estimator type."""
+    if hasattr(model, "predict_proba"):
+        return model.predict_proba(X)
+    # LightGBM Booster: predict() already returns class probabilities for multiclass
+    return model.predict(X)
+
+
+def verify(model):
+    """Parity gate: ONNX output[1] must match the estimator's probabilities and
+    be a [N, NUM_CLASSES] float tensor."""
     import onnxruntime as ort
+    import pandas as pd
 
-    logger.info("Verifying inference consistency...")
+    df = pd.read_parquet("data/processed/features.parquet")
+    X = df[FEATURES].head(16).to_numpy(dtype=np.float32)
 
-    # Load both models
-    py_model = PositionProbabilityModel.load(MODEL_PATH)
-    onnx_session = ort.InferenceSession(str(ONNX_PATH))
+    sess = ort.InferenceSession(str(ONNX_PATH))
+    outs = sess.run(None, {sess.get_inputs()[0].name: X})
+    if len(outs) < 2:
+        raise RuntimeError(f"Expected >=2 ONNX outputs, got {len(outs)}")
+    probs = np.asarray(outs[1])
+    expected = np.asarray(_predict_proba(model, X))
 
-    # Print model outputs info
-    print("\nONNX Model Outputs:")
-    for output in onnx_session.get_outputs():
-        print(f"  - {output.name}: shape={output.shape}, type={output.type}")
+    print("\n" + "=" * 50)
+    print("ONNX outputs:", [(o.name, o.shape, o.type) for o in sess.get_outputs()])
+    print("onnx probs shape/dtype:", probs.shape, probs.dtype)
+    print("estimator probs shape:", expected.shape)
+    if probs.shape != expected.shape:
+        raise RuntimeError(f"Shape mismatch: onnx {probs.shape} vs model {expected.shape}")
+    max_diff = float(np.max(np.abs(probs - expected)))
+    print(f"max abs diff: {max_diff:.2e}")
+    print("PARITY PASS" if max_diff < 1e-4 else "PARITY FAIL")
+    print("=" * 50)
+    if max_diff >= 1e-4:
+        raise RuntimeError(f"Parity failed: max diff {max_diff}")
 
-    # Create sample input
-    n_horses = 5
-    n_features = len(FEATURES)
-    sample_input = np.random.rand(n_horses, n_features).astype(np.float32)
 
-    # Python inference
-    py_output = py_model.predict_proba(sample_input)
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model-type", choices=["catboost", "lgbm"], default="catboost")
+    ap.add_argument("--pkl", type=Path, default=None, help="Override source pkl path")
+    args = ap.parse_args()
 
-    # ONNX inference
-    input_name = onnx_session.get_inputs()[0].name
-    onnx_outputs = onnx_session.run(None, {input_name: sample_input})
-
-    # Check output format
-    n_classes = 18
-
-    # After removing ZipMap, output should be a tensor directly
-    # Output 0 is labels, Output 1 is probabilities tensor
-    if len(onnx_outputs) >= 2:
-        onnx_probs_raw = onnx_outputs[1]
-
-        # Check if it's already a numpy array (tensor output after ZipMap removal)
-        if isinstance(onnx_probs_raw, np.ndarray):
-            onnx_probs = onnx_probs_raw
-            logger.info("ONNX output is tensor format (ZipMap removed)")
-        elif isinstance(onnx_probs_raw, list):
-            # Old ZipMap format: list of dicts
-            logger.info("ONNX output is ZipMap format (list of dicts)")
-            onnx_probs = np.zeros((n_horses, n_classes))
-            for i, prob_dict in enumerate(onnx_probs_raw):
-                for class_idx, prob in prob_dict.items():
-                    if class_idx < n_classes:
-                        onnx_probs[i, class_idx] = prob
-        else:
-            logger.warning(f"Unexpected ONNX output type: {type(onnx_probs_raw)}")
-            return False
-    else:
-        logger.error(f"Expected at least 2 outputs, got {len(onnx_outputs)}")
-        return False
-
-    # Check if shapes match
-    logger.info(f"Python output shape: {py_output.shape}")
-    logger.info(f"ONNX output shape: {onnx_probs.shape}")
-
-    # Compare values
-    max_diff = np.abs(py_output - onnx_probs).max()
-    logger.info(f"Max difference: {max_diff:.6f}")
-
-    if max_diff < 1e-5:
-        logger.info("Inference verification PASSED")
-    else:
-        logger.warning(f"Inference verification WARNING: max diff = {max_diff}")
-
-    return max_diff < 1e-3
+    pkl = args.pkl or DEFAULT_PKL[args.model_type]
+    model = (
+        export_catboost(pkl) if args.model_type == "catboost" else export_lightgbm(pkl)
+    )
+    verify(model)
 
 
 if __name__ == "__main__":
-    export_to_onnx()
-
-    # Install onnxruntime if not available
-    try:
-        verify_inference()
-    except ImportError:
-        logger.info("Install onnxruntime to verify inference: uv pip install onnxruntime")
+    main()

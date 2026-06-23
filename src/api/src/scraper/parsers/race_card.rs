@@ -105,6 +105,24 @@ impl RaceCardParser {
             }
         }
 
+        // The live shutuba page's RaceData01 carries only the post time, not the
+        // calendar date. When the date is absent there, fall back to the day-picker:
+        // the active <dd> links to race_list.html?...kaisai_date=YYYYMMDD for this race.
+        if info.date.is_empty() {
+            if let Ok(selector) = Selector::parse("dd.Active a") {
+                if let Some(href) = document
+                    .select(&selector)
+                    .next()
+                    .and_then(|a| a.value().attr("href"))
+                {
+                    let kaisai_re = Regex::new(r"kaisai_date=(\d{4})(\d{2})(\d{2})").unwrap();
+                    if let Some(caps) = kaisai_re.captures(href) {
+                        info.date = format!("{}-{}-{}", &caps[1], &caps[2], &caps[3]);
+                    }
+                }
+            }
+        }
+
         // Racecourse from RaceData02
         if let Ok(selector) = Selector::parse(".RaceData02 span") {
             if let Some(elem) = document.select(&selector).next() {
@@ -397,6 +415,29 @@ mod tests {
         assert_eq!(info.track_condition, "良");
         assert_eq!(info.date, "2025-12-28");
         assert_eq!(info.grade, "G1");
+    }
+
+    #[test]
+    fn test_parse_date_from_active_daypicker_when_racedata01_has_no_date() {
+        // The live shutuba page omits the date from RaceData01 (only the post time
+        // is present) and exposes it via the active day-picker link instead.
+        let html = r#"<!DOCTYPE html><html><body>
+<div class="RaceName">テストレース</div>
+<div class="RaceNum">9R</div>
+<div class="RaceData01">14:20発走 / ダ1600m (左) / 天候:晴 / 馬場:良</div>
+<div class="RaceData02"><span>第2回東京12日目</span></div>
+<dl id="RaceList_DateList">
+<dd><a href="../top/race_list.html?&amp;kaisai_date=20260530&amp;kaisai_id=2026080311" class="">5月30日</a></dd>
+<dd class="Active"><a href="../top/race_list.html?kaisai_date=20260531&amp;kaisai_id=2026080312">5月31日</a></dd>
+<dd><a href="../top/race_list.html?&amp;kaisai_date=20260607&amp;kaisai_id=2026080313" class="">6月7日</a></dd>
+</dl>
+</body></html>"#;
+
+        let (info, _) = RaceCardParser::parse(html, "202605021209").unwrap();
+        assert_eq!(info.date, "2026-05-31");
+        // The in-line distance/surface should still parse normally.
+        assert_eq!(info.distance, 1600);
+        assert_eq!(info.surface, "dirt");
     }
 
     #[test]

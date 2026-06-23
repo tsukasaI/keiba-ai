@@ -139,12 +139,36 @@ impl Browser {
         .await
     }
 
-    /// Fetch page content with custom configuration
+    /// Fetch page content with custom configuration.
+    ///
+    /// `config.timeout` bounds only the DOM-ready polling. Navigation
+    /// (`new_page`) and content extraction (`page.content`) are otherwise
+    /// unbounded and have hung indefinitely on some pages, stalling the whole
+    /// run. Wrap the entire operation in a hard deadline so a single stuck fetch
+    /// fails fast (callers treat the error as a cache miss / default) instead of
+    /// blocking forever.
     pub async fn fetch_page_with_config(
         &self,
         url: &str,
         config: &PageLoadConfig,
     ) -> Result<String> {
+        let deadline = config.timeout + Duration::from_secs(20);
+        match timeout(deadline, self.fetch_page_inner(url, config)).await {
+            Ok(result) => result,
+            Err(_) => {
+                warn!("Page fetch exceeded hard deadline {:?}: {}", deadline, url);
+                Err(anyhow::anyhow!(
+                    "page fetch exceeded hard deadline {:?}: {}",
+                    deadline,
+                    url
+                ))
+            }
+        }
+    }
+
+    /// Inner fetch (navigate → wait → extract). Bounded by the hard deadline in
+    /// [`fetch_page_with_config`].
+    async fn fetch_page_inner(&self, url: &str, config: &PageLoadConfig) -> Result<String> {
         let page = self
             .browser
             .new_page(url)

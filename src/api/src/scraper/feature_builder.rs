@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub struct HorseFeatures {
     // Basic (5)
     pub horse_age_num: f32,
-    pub horse_sex_encoded: f32, // 牡:0, 牝:1, セ:2
+    pub horse_sex_encoded: f32, // 牡:1, 牝:2, セ:3 (matches training)
     pub post_position_num: f32,
     pub weight_carried: f32,
     pub horse_weight: f32,
@@ -308,10 +308,12 @@ impl FeatureBuilder {
             features.career_races = Defaults::CAREER_RACES;
         }
 
-        // Odds feature
+        // Odds feature. Training uses log1p (np.log1p = ln(1+odds),
+        // feature_engineering.py), so match it exactly — this is the model's
+        // single most important feature.
         features.odds_log = entry
             .win_odds
-            .map(|o| (o as f32).ln())
+            .map(|o| (1.0 + o as f32).ln())
             .unwrap_or(Defaults::ODDS_LOG);
 
         // Running style features from horse history
@@ -379,30 +381,35 @@ impl FeatureBuilder {
         features
     }
 
-    /// Encode race grade to binary (0 = non-graded, 1 = graded)
+    /// Encode is_graded_race (1 = graded/listed, 0 = otherwise).
+    /// Matches training (feature_engineering.py): isin G1/G2/G3/L/J.G1/J.G2/J.G3.
     fn encode_grade(grade: &str) -> f32 {
         match grade {
-            "G1" | "G2" | "G3" => 1.0,
+            "G1" | "G2" | "G3" | "L" | "J.G1" | "J.G2" | "J.G3" => 1.0,
             _ => 0.0,
         }
     }
 
-    /// Encode grade level (0 = non-graded, 1 = G3, 2 = G2, 3 = G1)
+    /// Encode grade level (lower = more prestigious; non-graded = 6).
+    /// Matches training grade_map + fillna(6) (feature_engineering.py).
     fn encode_grade_level(grade: &str) -> f32 {
         match grade {
-            "G1" => 3.0,
-            "G2" => 2.0,
-            "G3" => 1.0,
-            _ => 0.0,
+            "G1" | "J.G1" => 1.0,
+            "G2" | "J.G2" => 2.0,
+            "G3" | "J.G3" => 3.0,
+            "L" => 4.0,
+            "G" => 5.0,
+            _ => 6.0,
         }
     }
 
-    /// Encode sex to numeric value
+    /// Encode sex to numeric value. Matches training sex_map + fillna(0)
+    /// (feature_engineering.py): 牡=1, 牝=2, セ/せん=3, unknown=0.
     fn encode_sex(sex: &str) -> f32 {
         match sex {
-            "牡" => 0.0,
-            "牝" => 1.0,
-            "セ" => 2.0,
+            "牡" => 1.0,
+            "牝" => 2.0,
+            "セ" | "せん" => 3.0,
             _ => 0.0,
         }
     }
@@ -425,9 +432,12 @@ mod tests {
 
     #[test]
     fn test_encode_sex() {
-        assert_eq!(FeatureBuilder::encode_sex("牡"), 0.0);
-        assert_eq!(FeatureBuilder::encode_sex("牝"), 1.0);
-        assert_eq!(FeatureBuilder::encode_sex("セ"), 2.0);
+        // Must match training sex_map (feature_engineering.py): 牡=1, 牝=2, セ=3.
+        assert_eq!(FeatureBuilder::encode_sex("牡"), 1.0);
+        assert_eq!(FeatureBuilder::encode_sex("牝"), 2.0);
+        assert_eq!(FeatureBuilder::encode_sex("セ"), 3.0);
+        assert_eq!(FeatureBuilder::encode_sex("せん"), 3.0);
+        assert_eq!(FeatureBuilder::encode_sex("?"), 0.0);
     }
 
     #[test]
@@ -456,19 +466,26 @@ mod tests {
 
     #[test]
     fn test_encode_grade() {
+        // is_graded_race: G1/G2/G3/L/J.G1-3 -> 1, else 0 (feature_engineering.py).
         assert_eq!(FeatureBuilder::encode_grade("G1"), 1.0);
         assert_eq!(FeatureBuilder::encode_grade("G2"), 1.0);
         assert_eq!(FeatureBuilder::encode_grade("G3"), 1.0);
+        assert_eq!(FeatureBuilder::encode_grade("L"), 1.0);
+        assert_eq!(FeatureBuilder::encode_grade("J.G1"), 1.0);
         assert_eq!(FeatureBuilder::encode_grade("OP"), 0.0);
         assert_eq!(FeatureBuilder::encode_grade(""), 0.0);
     }
 
     #[test]
     fn test_encode_grade_level() {
-        assert_eq!(FeatureBuilder::encode_grade_level("G1"), 3.0);
+        // Lower = more prestigious; non-graded -> 6 (training grade_map + fillna(6)).
+        assert_eq!(FeatureBuilder::encode_grade_level("G1"), 1.0);
         assert_eq!(FeatureBuilder::encode_grade_level("G2"), 2.0);
-        assert_eq!(FeatureBuilder::encode_grade_level("G3"), 1.0);
-        assert_eq!(FeatureBuilder::encode_grade_level("OP"), 0.0);
+        assert_eq!(FeatureBuilder::encode_grade_level("G3"), 3.0);
+        assert_eq!(FeatureBuilder::encode_grade_level("L"), 4.0);
+        assert_eq!(FeatureBuilder::encode_grade_level("J.G1"), 1.0);
+        assert_eq!(FeatureBuilder::encode_grade_level("OP"), 6.0);
+        assert_eq!(FeatureBuilder::encode_grade_level(""), 6.0);
     }
 
     #[test]

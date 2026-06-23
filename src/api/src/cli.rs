@@ -428,6 +428,9 @@ pub async fn run_predict(
     } else {
         raw_win_probs
     };
+    // Normalize to a proper win distribution (sum 1.0) before Harville — the model
+    // scores horses independently so per-horse P(1st) doesn't sum to 1.
+    let win_probs = normalize_win_probs(win_probs);
 
     let min_prob = config.betting.min_probability;
     let max_combos = config.betting.max_combinations;
@@ -866,7 +869,7 @@ pub async fn predict_live(
     };
 
     // Parse race card
-    let (race_info, entries) = RaceCardParser::parse(&race_card_html, &race_id)?;
+    let (race_info, mut entries) = RaceCardParser::parse(&race_card_html, &race_id)?;
     eprintln!(
         "  Race: {} ({} {}m)",
         race_info.race_name.cyan(),
@@ -1136,6 +1139,37 @@ pub async fn predict_live(
         format!("{}", odds_map.len()).yellow()
     );
 
+    // Inject per-horse win (単勝) odds so the model's market feature (odds_log) is
+    // populated. The scraped race card carries no odds (netkeiba loads them via a
+    // separate AJAX call), so without this every horse gets the same default
+    // odds_log and the model predicts a near-flat field.
+    match fetch_win_odds(&race_id).await {
+        Ok(win_odds) if !win_odds.is_empty() => {
+            let mut filled = 0;
+            for entry in &mut entries {
+                if let Some(&o) = win_odds.get(&entry.post_position) {
+                    entry.win_odds = Some(o);
+                    filled += 1;
+                }
+            }
+            eprintln!(
+                "  Loaded {} win odds ({}/{} horses)",
+                format!("{}", win_odds.len()).yellow(),
+                filled,
+                entries.len()
+            );
+        }
+        Ok(_) => eprintln!(
+            "  {}",
+            "Warning: win odds not published yet; model loses its market feature".yellow()
+        ),
+        Err(e) => eprintln!(
+            "  {}",
+            format!("Warning: win odds fetch failed ({e}); model loses its market feature")
+                .yellow()
+        ),
+    }
+
     // Step 4: Build features
     eprintln!("{}", "Step 4: Building features...".green());
     let mut horse_features = Vec::new();
@@ -1157,6 +1191,13 @@ pub async fn predict_live(
         }
     }
 
+    if verbose {
+        let ol: Vec<f32> = horse_features.iter().map(|f| f.odds_log).collect();
+        let mn = ol.iter().cloned().fold(f32::INFINITY, f32::min);
+        let mx = ol.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        eprintln!("  odds_log range: {mn:.3}..{mx:.3} (constant => model is market-blind)");
+    }
+
     // Step 5: Run model inference
     eprintln!("{}", "Step 5: Running model inference...".green());
     let config = AppConfig::load()?;
@@ -1174,6 +1215,7 @@ pub async fn predict_live(
 
     let position_probs = model.predict(features_array)?;
     let raw_win_probs = extract_win_probs(&position_probs, &horse_ids);
+    let raw_win_sum: f64 = raw_win_probs.values().sum();
 
     // Load and apply calibration
     let calibrator = load_calibrator(&calibration_path);
@@ -1185,6 +1227,18 @@ pub async fn predict_live(
     } else {
         raw_win_probs
     };
+
+    // The position model scores each horse independently, so per-horse P(1st)
+    // does not sum to 1 across the field. Harville (exacta/trifecta/...) assumes a
+    // proper win distribution, so normalize to sum 1.0 before deriving combos.
+    let win_probs = normalize_win_probs(win_probs);
+
+    if verbose {
+        let cal_win_sum: f64 = win_probs.values().sum();
+        eprintln!(
+            "  win-prob sum: raw {raw_win_sum:.3}, normalized {cal_win_sum:.3} (Harville assumes ~1.0)"
+        );
+    }
 
     // Step 6: Calculate probabilities and EV
     eprintln!(
@@ -1228,7 +1282,7 @@ pub async fn run_live(
 ) -> anyhow::Result<()> {
     use colored::Colorize;
 
-    let pred = predict_live(
+    let pred = predict_live_bounded(
         race_id.clone(),
         bet_type.clone(),
         ev_threshold,
@@ -1429,7 +1483,7 @@ async fn fetch_odds(
 ) -> anyhow::Result<(std::collections::HashMap<String, f64>, Option<String>)> {
     use crate::scraper::parsers::OddsParser;
 
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = match bet_type {
         "trifecta" => crate::scraper::trifecta_odds_url(race_id),
         _ => crate::scraper::exacta_odds_url(race_id),
@@ -1460,6 +1514,87 @@ async fn fetch_odds(
     }
 
     Ok((odds_map, official_datetime))
+}
+
+/// Normalize per-horse win probabilities to sum to 1.0. The position model scores
+/// each horse independently, so raw P(1st) values don't form a distribution; the
+/// Harville combo formulas (exacta/trifecta/...) require one. No-op if the sum is
+/// non-positive.
+fn normalize_win_probs(
+    win_probs: std::collections::HashMap<String, f64>,
+) -> std::collections::HashMap<String, f64> {
+    let sum: f64 = win_probs.values().sum();
+    if sum > 0.0 {
+        win_probs.into_iter().map(|(k, v)| (k, v / sum)).collect()
+    } else {
+        win_probs
+    }
+}
+
+/// Run [`predict_live`] under a hard wall-clock deadline. A stalled browser
+/// navigation or HTTP fetch could otherwise hang the command indefinitely
+/// (observed in the wild); this guarantees the call returns. Generous enough for
+/// a full-field race with all profiles uncached.
+async fn predict_live_bounded(
+    race_id: String,
+    bet_type: String,
+    ev_threshold: f64,
+    calibration_path: Option<PathBuf>,
+    force: bool,
+    verbose: bool,
+) -> anyhow::Result<LivePrediction> {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
+    tokio::time::timeout(
+        DEADLINE,
+        predict_live(
+            race_id,
+            bet_type,
+            ev_threshold,
+            calibration_path,
+            force,
+            verbose,
+        ),
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!("live prediction timed out after {DEADLINE:?} (network/browser stall)")
+    })?
+}
+
+/// HTTP client with a request timeout, so a stalled netkeiba endpoint can't hang
+/// a fetch forever (the default reqwest client has no timeout).
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+/// Fetch official 馬単/三連単 payouts from the live race.netkeiba result page.
+/// The page is server-rendered, so a plain HTTP GET suffices (no browser); rows
+/// are matched by ASCII class, so EUC-JP→UTF-8 decoding of labels is harmless.
+/// Returns empty when results aren't published yet.
+async fn fetch_live_payouts(
+    race_id: &str,
+) -> anyhow::Result<Vec<crate::scraper::historical::race_result::PayoutEntry>> {
+    use crate::scraper::historical::RaceResultParser;
+
+    let client = http_client();
+    let url = crate::scraper::result_url_live(race_id);
+    let body = client.get(&url).send().await?.text().await?;
+    Ok(RaceResultParser::parse_payouts_live(&body))
+}
+
+/// Fetch per-horse win (単勝) odds, keyed by post position (馬番), via the same
+/// JSON API as the combination odds (type=1). Returns an empty map when odds are
+/// not published yet.
+async fn fetch_win_odds(race_id: &str) -> anyhow::Result<std::collections::HashMap<u8, f64>> {
+    use crate::scraper::parsers::OddsParser;
+
+    let client = http_client();
+    let url = crate::scraper::win_odds_url(race_id);
+    let response = client.get(&url).send().await?.text().await?;
+    Ok(OddsParser::parse_win(&response)?.odds)
 }
 
 /// Calculate EV for exacta bets.
@@ -1565,7 +1700,7 @@ pub async fn run_paper_record(
     use chrono::{NaiveDate, Utc};
     use colored::Colorize;
 
-    let pred = predict_live(
+    let pred = predict_live_bounded(
         race_id.clone(),
         bet_type.clone(),
         ev_threshold,
@@ -1737,47 +1872,71 @@ pub async fn run_paper_settle(
                 .unwrap_or(false)
         });
 
-        // Scrape the result page once if any needed payout is missing.
+        // Acquire payouts if any needed type is missing. Prefer the live site
+        // (race.netkeiba), which publishes results immediately; db.netkeiba lags
+        // same-day races by a day or more, so use it only as a fallback.
         if !have_all {
-            if browser.is_none() {
-                eprintln!("{}", "Launching browser...".dimmed());
-                browser = Some(Browser::launch().await?);
-            }
-            let b = browser.as_ref().unwrap();
-            let url = race_result_url(rid);
-            if verbose {
-                eprintln!("  Fetching result: {url}");
-            }
-            match b.fetch_page(&url).await {
-                Ok(html) => {
-                    let payouts = RaceResultParser::parse_payouts(&html);
-                    if payouts.is_empty() {
-                        if verbose {
-                            eprintln!(
-                                "  {}",
-                                format!("No payouts for {rid} yet (race may not have finished)")
+            let live_payouts = fetch_live_payouts(rid).await.unwrap_or_default();
+            if !live_payouts.is_empty() {
+                if verbose {
+                    eprintln!(
+                        "  {} payout entries from race.netkeiba for {rid}",
+                        live_payouts.len()
+                    );
+                }
+                for p in &live_payouts {
+                    repo.insert_payout(rid, &p.bet_type, &p.combination, p.payout_per_100)?;
+                }
+            } else {
+                // Fallback: db.netkeiba result page (browser) — also yields finish
+                // entries for the cross-check, but lags same-day races.
+                if browser.is_none() {
+                    eprintln!("{}", "Launching browser...".dimmed());
+                    browser = Some(Browser::launch().await?);
+                }
+                let b = browser.as_ref().unwrap();
+                let url = race_result_url(rid);
+                if verbose {
+                    eprintln!("  Fetching result (db.netkeiba fallback): {url}");
+                }
+                match b.fetch_page(&url).await {
+                    Ok(html) => {
+                        let payouts = RaceResultParser::parse_payouts(&html);
+                        if payouts.is_empty() {
+                            if verbose {
+                                eprintln!(
+                                    "  {}",
+                                    format!(
+                                        "No payouts for {rid} yet (race may not have finished)"
+                                    )
                                     .yellow()
-                            );
-                        }
-                    } else {
-                        // Persist race + entries for completeness and the finish cross-check.
-                        if let Ok((race_info, entries)) = RaceResultParser::parse(&html, rid) {
-                            let _ = repo.insert_race(&race_info);
-                            for e in &entries {
-                                let _ = repo.insert_entry(e);
+                                );
+                            }
+                        } else {
+                            // Persist race + entries for the finish cross-check.
+                            if let Ok((race_info, entries)) = RaceResultParser::parse(&html, rid) {
+                                let _ = repo.insert_race(&race_info);
+                                for e in &entries {
+                                    let _ = repo.insert_entry(e);
+                                }
+                            }
+                            for p in &payouts {
+                                repo.insert_payout(
+                                    rid,
+                                    &p.bet_type,
+                                    &p.combination,
+                                    p.payout_per_100,
+                                )?;
                             }
                         }
-                        for p in &payouts {
-                            repo.insert_payout(rid, &p.bet_type, &p.combination, p.payout_per_100)?;
-                        }
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                }
-                Err(e) => {
-                    eprintln!(
-                        "  {}",
-                        format!("Failed to fetch result for {rid}: {e}").red()
-                    );
+                    Err(e) => {
+                        eprintln!(
+                            "  {}",
+                            format!("Failed to fetch result for {rid}: {e}").red()
+                        );
+                    }
                 }
             }
         }
