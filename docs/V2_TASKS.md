@@ -206,7 +206,7 @@ stop, return to paper.
 
 ## 5. Phase 0 — Foundation
 
-### ▶ NEXT — Task 0.1: Market baseline + ΔR² evaluation harness
+### ✅ Task 0.1 (done 2026-07-08): Market baseline + ΔR² evaluation harness
 
 **Context.** Everything downstream is judged by this harness (D2). It must exist before
 any model work. Needs only `finish_position` + `win_odds` — both already in SQLite
@@ -249,7 +249,19 @@ Then fill §9 ledger with the per-year R²_market numbers.
 the declared field size. (The old LightGBM `libomp.dylib` dlopen failure was fixed
 2026-07-08 via `brew install libomp` — both test suites run green: 219 Python / 116 Rust.)
 
-### Task 0.2 `[parallel-ok]` — Historical data completion (2023 / 2024 gaps / 2025)
+### ▶ NEXT — Task 0.2 `[parallel-ok]` — Historical data completion (2023 / 2024 gaps / 2025)
+
+_Status 2026-07-08: scrape launched in background (2023 → 2025 → 2024 order). If it died
+with the session, re-run the commands below — they skip already-scraped races. What
+remains for this task: wait for completion, run the verification queries, **re-scrape
+with `--force` the dates of races that have a `races` row but no `race_entries` rows**
+(2022: 155, 2023: 28, 2024: 8 as of 2026-07-08 — find them via the no-entries query
+below), then re-run the Task 0.1 CLI and update the ledger._
+
+```bash
+# find dates whose races lack entry rows (need --force re-scrape):
+sqlite3 data/historical/keiba.db "SELECT DISTINCT race_date FROM races r WHERE NOT EXISTS (SELECT 1 FROM race_entries e WHERE e.race_id = r.race_id) ORDER BY race_date;"
+```
 
 **Context.** Current per-year race counts: 2022: 3,488 (complete), 2023: 460, 2024: 2,735,
 2025: 0. JRA runs ~3,400–3,500/year. The walk-forward protocol (§2.5) needs 2023 and 2025
@@ -392,6 +404,7 @@ Then run the loop until **GATE 2** (§4) resolves.
 
 | Date | Event / numbers | By |
 |---|---|---|
+| 2026-07-08 | **Task 0.1 DONE** (`market_eval.py` + CLI + 23 tests). R²_market(β=1): 2022 = **0.2732** (3,262 races used), 2023 = **0.2438** (427, partial year), 2024 = **0.2444** (2,658). β(prev-year fit) ≈ 0.94–1.00 (market ~perfectly calibrated). All within sanity range — but well above the HK anchors (0.13–0.19): the JRA win market is highly efficient, so the ΔR² bar is high. Data note: races lacking `race_entries`: 2022=155, 2023=28, 2024=8 → fold into Task 0.2 (`--force` re-scrape of those dates). | Fable session |
 | 2026-07-08 | Env verified green: 219 Python / 116 Rust tests pass. Fixed pytest-collection breakage (`brew install libomp`). | Fable session |
 | 2026-07-07 | V2 direction adopted; docs written. DB: 2022=3,488 / 2023=460 / 2024=2,735 / 2025=0 races. Only verified betting sample to date: 63 exacta paper bets (2026-05-31), all lost, ¥7,000 staked / ¥0 returned. | Fable session |
 
