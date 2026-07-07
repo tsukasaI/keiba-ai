@@ -83,3 +83,9 @@ htmlcov/
 
 # Rust
 target/
+
+# Claude Code: override user-global .claude/ ignore so project-scoped config (skills, etc.) is trackable,
+# while keeping session-local state ignored.
+!.claude/
+.claude/plans/
+.claude/settings.local.json
