@@ -4,6 +4,20 @@
 
 This is a Japanese horse racing (Keiba) AI prediction system for JRA (Japan Racing Association) races. The goal is to predict Exacta (1st and 2nd place in exact order) outcomes and maximize ROI using expected value-based betting strategy.
 
+## Current Focus: V2 Rebuild (2026-07) — START HERE
+
+The project is being rebuilt around a Benter-style two-stage architecture
+(odds-free fundamental model → market-odds blend → corrected Harville → EV/Kelly),
+with **ΔR² vs the market** as the go/no-go metric instead of backtest ROI.
+
+- Why / evidence: `docs/STRATEGY_V2.md` (Japanese)
+- **Executable task breakdown: `docs/V2_TASKS.md`** — new sessions: read it and pick up
+  the task marked **▶ NEXT**. Its Settled Decisions and formulas are the spec; do not
+  re-derive or re-litigate them. Update its Status Ledger and `HANDOVER.md` when done.
+
+Everything below describes the existing (v1) system. The scraper, SQLite storage, and
+paper-trading loop remain in active use; the v1 model/evaluation layers are being replaced.
+
 ## Tech Stack
 
 - **Analysis/ML Training**: Python (use `uv` for package management)
