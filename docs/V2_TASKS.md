@@ -251,12 +251,18 @@ the declared field size. (The old LightGBM `libomp.dylib` dlopen failure was fix
 
 ### ▶ NEXT — Task 0.2 `[parallel-ok]` — Historical data completion (2023 / 2024 gaps / 2025)
 
-_Status 2026-07-08: scrape launched in background (2023 → 2025 → 2024 order). If it died
-with the session, re-run the commands below — they skip already-scraped races. What
-remains for this task: wait for completion, run the verification queries, **re-scrape
-with `--force` the dates of races that have a `races` row but no `race_entries` rows**
-(2022: 155, 2023: 28, 2024: 8 as of 2026-07-08 — find them via the no-entries query
-below), then re-run the Task 0.1 CLI and update the ledger._
+_Status 2026-07-08 09:01 JST: scrape relaunched in background (2023 → 2025 → 2024) after
+the first attempt died: a timed-out `keiba-api` run leaked its headless Chrome, which
+held chromiumoxide's shared profile lock, and every later date failed in ~3 s with
+"SingletonLock: File exists" (104/104 failures). The orchestrator is now hardened
+(commit `c4c9545`): orphan-browser cleanup at start + after any failed date with one
+retry, and it iterates **all** dates (the old weekend-only filter silently skipped JRA
+holiday meetings). If the scrape died with the session, just re-run the commands below —
+already-scraped races are skipped. What remains for this task: wait for completion, run
+the verification queries, **re-scrape with `--force` the dates of races that have a
+`races` row but no `race_entries` rows** (2022: 155, 2023: 28, 2024: 8 as of 2026-07-08 —
+find them via the no-entries query below), then re-run the Task 0.1 CLI and update the
+ledger._
 
 ```bash
 # find dates whose races lack entry rows (need --force re-scrape):
@@ -404,6 +410,7 @@ Then run the loop until **GATE 2** (§4) resolves.
 
 | Date | Event / numbers | By |
 |---|---|---|
+| 2026-07-08 | Task 0.2 in progress: first scrape run leaked a browser → SingletonLock cascade (2023 stopped at 1,402 races; 2025/2024 passes all failed). Hardened orchestrator (`c4c9545`: orphan cleanup + retry + all-dates iteration incl. holidays) and relaunched; DB at 7,630 races and growing. | Fable session |
 | 2026-07-08 | **Task 0.1 DONE** (`market_eval.py` + CLI + 23 tests). R²_market(β=1): 2022 = **0.2732** (3,262 races used), 2023 = **0.2438** (427, partial year), 2024 = **0.2444** (2,658). β(prev-year fit) ≈ 0.94–1.00 (market ~perfectly calibrated). All within sanity range — but well above the HK anchors (0.13–0.19): the JRA win market is highly efficient, so the ΔR² bar is high. Data note: races lacking `race_entries`: 2022=155, 2023=28, 2024=8 → fold into Task 0.2 (`--force` re-scrape of those dates). | Fable session |
 | 2026-07-08 | Env verified green: 219 Python / 116 Rust tests pass. Fixed pytest-collection breakage (`brew install libomp`). | Fable session |
 | 2026-07-07 | V2 direction adopted; docs written. DB: 2022=3,488 / 2023=460 / 2024=2,735 / 2025=0 races. Only verified betting sample to date: 63 exacta paper bets (2026-05-31), all lost, ¥7,000 staked / ¥0 returned. | Fable session |
