@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models.market_eval import (  # noqa: E402
+    JRA_ONLY_SQL,
     MIN_RUNNERS,
     PreparedRace,
     fit_power_recalibration,
@@ -54,11 +55,12 @@ def load_years(db_path: str, min_runners: int) -> dict[str, YearData]:
     conn.execute("PRAGMA busy_timeout = 10000")
     try:
         rows = conn.execute(
-            """
+            f"""
             SELECT r.race_id, substr(r.race_date, 1, 4) AS year,
                    e.win_odds, e.finish_position
             FROM races r
             JOIN race_entries e ON e.race_id = r.race_id
+            WHERE {JRA_ONLY_SQL.format(alias="r")}
             ORDER BY r.race_id
             """
         ).fetchall()

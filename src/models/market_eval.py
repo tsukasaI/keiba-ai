@@ -23,6 +23,12 @@ from scipy.optimize import minimize, minimize_scalar
 PROB_FLOOR = 1e-6
 MIN_RUNNERS = 5
 
+# SQL fragment restricting to JRA races. db.netkeiba race lists mix JRA and
+# NAR (regional) meetings and the DB contains legacy NAR rows; racecourse code
+# (race_id chars 5-6, 1-indexed) is 01-10 for JRA. Interpolate with the
+# `races` table alias, e.g. JRA_ONLY_SQL.format(alias="r").
+JRA_ONLY_SQL = "CAST(substr({alias}.race_id, 5, 2) AS INTEGER) BETWEEN 1 AND 10"
+
 # Drop reasons returned by prepare_race
 DROP_NO_WINNER = "no_winner"
 DROP_WINNER_NO_ODDS = "winner_no_odds"
