@@ -11,7 +11,21 @@ use scraper::{Html, Selector};
 pub struct RaceListParser;
 
 impl RaceListParser {
-    /// Parse race list HTML and extract race IDs
+    /// True iff the race ID belongs to a JRA racecourse.
+    ///
+    /// db.netkeiba race-list pages mix JRA and NAR (regional) meetings on the
+    /// same date. Chars 4..6 of the 12-digit race ID are the racecourse code:
+    /// 01-10 for JRA (Sapporo..Kokura), 30+ for NAR tracks. This project only
+    /// models JRA; ingesting NAR silently poisons the dataset (nearly all
+    /// dirt, different class system, thin betting pools).
+    fn is_jra(race_id: &str) -> bool {
+        race_id
+            .get(4..6)
+            .and_then(|s| s.parse::<u32>().ok())
+            .is_some_and(|code| (1..=10).contains(&code))
+    }
+
+    /// Parse race list HTML and extract JRA race IDs
     ///
     /// Returns a list of race IDs (format: YYYYRRCCNNDD)
     pub fn parse(html: &str) -> Result<Vec<String>> {
@@ -27,7 +41,7 @@ impl RaceListParser {
                 if let Some(caps) = race_id_re.captures(href) {
                     let race_id = caps[1].to_string();
                     // Avoid duplicates
-                    if !race_ids.contains(&race_id) {
+                    if Self::is_jra(&race_id) && !race_ids.contains(&race_id) {
                         race_ids.push(race_id);
                     }
                 }
@@ -68,7 +82,7 @@ impl RaceListParser {
                 if let Some(href) = elem.value().attr("href") {
                     if let Some(caps) = race_id_re.captures(href) {
                         let race_id = caps[1].to_string();
-                        if !race_ids.contains(&race_id) {
+                        if Self::is_jra(&race_id) && !race_ids.contains(&race_id) {
                             race_ids.push(race_id);
                         }
                     }
@@ -165,5 +179,29 @@ mod tests {
         "#;
         let race_ids = RaceListParser::parse(html).unwrap();
         assert_eq!(race_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_nar_races_filtered_out() {
+        // Course codes 30+ are NAR (regional) tracks; db.netkeiba lists them
+        // on the same date pages as JRA meetings.
+        let html = r#"
+        <a href="/race/202406010101/">JRA Nakayama 1R</a>
+        <a href="/race/202354012402/">NAR Himeji C3</a>
+        <a href="/race/202344010509/">NAR Oi</a>
+        <a href="/race/202230011201/">NAR Monbetsu</a>
+        "#;
+        let race_ids = RaceListParser::parse(html).unwrap();
+        assert_eq!(race_ids, vec!["202406010101".to_string()]);
+    }
+
+    #[test]
+    fn test_is_jra_bounds() {
+        assert!(RaceListParser::is_jra("202401010101")); // 01 Sapporo
+        assert!(RaceListParser::is_jra("202410010101")); // 10 Kokura
+        assert!(!RaceListParser::is_jra("202400010101")); // 00 invalid
+        assert!(!RaceListParser::is_jra("202411010101")); // 11 not JRA
+        assert!(!RaceListParser::is_jra("202454012402")); // 54 NAR
+        assert!(!RaceListParser::is_jra("short")); // malformed
     }
 }
