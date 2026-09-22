@@ -22,6 +22,8 @@ import argparse
 import logging
 import subprocess
 import sys
+import tempfile
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -61,20 +63,41 @@ def get_db_path() -> Path:
 
 
 def generate_race_dates(start_date: date, end_date: date) -> list[date]:
-    """Generate list of JRA race dates (weekends and some weekdays).
+    """Generate all candidate dates and let the scraper skip non-race days.
 
-    JRA races are held on weekends (Sat/Sun) and occasionally weekdays
-    for special meetings. We'll generate all dates and let the scraper
-    skip non-race days.
+    JRA races are mostly on weekends, but holiday meetings run on weekdays
+    (typically Monday holidays) — a weekend-only filter silently drops them.
     """
     dates = []
     current = start_date
     while current <= end_date:
-        # JRA races are mainly on weekends
-        if current.weekday() in (5, 6):  # Saturday, Sunday
-            dates.append(current)
+        dates.append(current)
         current += timedelta(days=1)
     return dates
+
+
+def cleanup_orphan_browser() -> None:
+    """Kill leaked scraper browsers and remove stale chromiumoxide profile locks.
+
+    A timed-out keiba-api run gets killed by subprocess.run, but its headless
+    Chrome child survives, keeps holding the shared chromiumoxide profile dir,
+    and every later browser launch aborts with "Failed to create SingletonLock:
+    File exists". No scraper browser should be alive between invocations, so
+    anything referencing that profile dir is an orphan.
+    """
+    profile_dir = Path(tempfile.gettempdir()) / "chromiumoxide-runner"
+    result = subprocess.run(
+        ["pkill", "-f", str(profile_dir)], capture_output=True, check=False
+    )
+    if result.returncode == 0:
+        logger.warning("Killed orphaned scraper browser process(es)")
+        time.sleep(1.0)
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        lock = profile_dir / name
+        try:
+            lock.unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning(f"Could not remove stale {name}: {e}")
 
 
 def scrape_date(cli_path: Path, db_path: Path, race_date: date,
@@ -138,6 +161,7 @@ def scrape_date_range(
 
     stats = {"success": 0, "failed": 0, "skipped": 0}
 
+    cleanup_orphan_browser()
     for i, race_date in enumerate(dates, 1):
         logger.info(f"[{i}/{len(dates)}] Processing {race_date}...")
 
@@ -146,6 +170,16 @@ def scrape_date_range(
             force=force,
             verbose=verbose,
         )
+        if not success:
+            # The dominant failure mode is a leaked browser from a killed run;
+            # clean up and give the date one more chance before moving on.
+            cleanup_orphan_browser()
+            logger.info(f"Retrying {race_date} after browser cleanup...")
+            success = scrape_date(
+                cli_path, db_path, race_date,
+                force=force,
+                verbose=verbose,
+            )
 
         if success:
             stats["success"] += 1
